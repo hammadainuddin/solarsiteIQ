@@ -1,14 +1,11 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Map, BarChart3, TrendingUp, Zap, Radar, Settings } from 'lucide-react';
+import { LayoutDashboard, Map, Settings, Sun } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/map', label: 'Map View', icon: Map },
-  { to: '/scorecard', label: 'Scorecard', icon: BarChart3 },
-  { to: '/financial', label: 'Financial Model', icon: TrendingUp },
-  { to: '/intel', label: 'Market Intel', icon: Radar },
+  { to: '/map', label: 'Screening Map', icon: Map },
 ];
 
 export function Sidebar() {
@@ -19,11 +16,11 @@ export function Sidebar() {
       <aside className="w-16 lg:w-56 h-full bg-surface border-r border-border flex flex-col shrink-0">
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
-          <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center shrink-0">
-            <Zap size={14} className="text-white" />
+          <div className="w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center shrink-0">
+            <Sun size={14} className="text-white" />
           </div>
           <span className="hidden lg:block font-semibold text-white text-sm tracking-wide">
-            DC SiteIQ
+            Solar SiteIQ
           </span>
         </div>
 
@@ -37,7 +34,7 @@ export function Sidebar() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                   isActive
-                    ? 'bg-accent text-white font-medium'
+                    ? 'bg-amber-500 text-white font-medium'
                     : 'text-muted hover:text-white hover:bg-surface-2'
                 }`
               }
@@ -49,16 +46,16 @@ export function Sidebar() {
         </nav>
 
         {/* Footer */}
-        <div className="px-2 py-3 border-t border-border flex items-center justify-between">
-          <p className="hidden lg:block text-xs text-muted px-2">Southeast Asia · 2025</p>
+        <div className="px-2 py-3 border-t border-border">
           <button
             onClick={() => setShowSettings(true)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-muted hover:text-white hover:bg-surface-2 transition-colors w-full lg:w-auto"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-muted hover:text-white hover:bg-surface-2 transition-colors w-full"
             title="Settings"
           >
             <Settings size={16} className="shrink-0" />
             <span className="hidden lg:block text-xs">Settings</span>
           </button>
+          <p className="hidden lg:block text-xs text-muted px-2 mt-2">Northern Malaysia · 2025</p>
         </div>
       </aside>
 

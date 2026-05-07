@@ -504,6 +504,73 @@ export interface MapMarker {
   metadata?: Record<string, string | number>;
 }
 
+// ─── Solar SiteIQ ─────────────────────────────────────────────────────────────
+
+export type SolarWorkflowType =
+  | 'solar_resource'
+  | 'grid_interconnection'
+  | 'land_suitability'
+  | 'land_availability'
+  | 'climate_risk'
+  | 'road_access'
+  | 'env_social'
+  | 'site_suitability';
+
+export interface SolarWorkflowResult {
+  type: SolarWorkflowType;
+  score: number;
+  verdict: 'Go' | 'Conditional Go' | 'Avoid';
+  metrics: Record<string, string>;
+  topFindings: string[];
+  keyRisk?: string;
+  summary?: string;
+}
+
+export type LandUseClass =
+  | 'idle_agri'
+  | 'paddy'
+  | 'oil_palm'
+  | 'rubber'
+  | 'mixed_agri'
+  | 'urban'
+  | 'forest'
+  | 'water'
+  | 'unknown';
+
+export type NorthernMyState = 'Perak' | 'Kedah' | 'Penang' | 'Perlis';
+
+export interface HexTileScores {
+  solar: number;
+  grid: number;
+  land: number;
+  availability: number;
+  climate: number;
+  road: number;
+  envSocial: number;
+  composite: number;
+}
+
+export interface HexTile {
+  h3Index: string;
+  centerLat: number;
+  centerLng: number;
+  state: NorthernMyState | null;
+  scores: HexTileScores;
+  attributes: {
+    ghiKwhM2Day: number;
+    distToGridKm: number;
+    nearestGridVoltageKV: number;
+    landUse: LandUseClass;
+    floodRisk: RiskLevel;
+    distToRoadKm: number;
+    isProtected: boolean;
+    /** Estimated buildable solar capacity (MW) based on land use, usable fraction and tile area */
+    estimatedCapacityMW: number;
+  };
+}
+
+export type HexScoreDimension = keyof HexTileScores;
+
 // ─── UI State ────────────────────────────────────────────────────────────────
 
 export interface AppState {

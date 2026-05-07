@@ -108,6 +108,9 @@ const SEA_BBOXES: [number, number, number, number][] = [
   [4.0,  114.5,  7.5,  119.5],  // Sabah (East Malaysia)
 ];
 
+// Northern Peninsular Malaysia only (Perak, Kedah, Penang, Perlis)
+const NORTHERN_MY_BBOX: [number, number, number, number] = [3.5, 99.5, 7.2, 102.5];
+
 // ─── Transmission line fetch ──────────────────────────────────────────────────
 
 interface OverpassWay {
@@ -334,4 +337,55 @@ export async function fetchSubstationsFromOSM(
     seen.add(s.id);
     return true;
   });
+}
+
+// ─── Northern Malaysia focused helpers ───────────────────────────────────────
+// Single-bbox fetch covering only Perak, Kedah, Penang, Perlis — fast (~5 s).
+
+export async function fetchNorthernMyLinesFromOSM(
+  minVoltageV = 132_000,
+  signal?: AbortSignal,
+  onProgress?: (done: number, total: number) => void,
+): Promise<TransmissionLine[]> {
+  const key = lineCacheKey(NORTHERN_MY_BBOX, minVoltageV);
+  const cached = await readOsmCache<TransmissionLine[]>('lines', key);
+
+  if (cached) {
+    onProgress?.(1, 1);
+    if (Date.now() - cached.fetchedAt > CACHE_TTL_MS) {
+      fetchLinesBbox(NORTHERN_MY_BBOX, minVoltageV)
+        .then((lines) => writeOsmCache('lines', key, lines))
+        .catch(() => {});
+    }
+    return cached.data;
+  }
+
+  const lines = await fetchLinesBbox(NORTHERN_MY_BBOX, minVoltageV, signal);
+  await writeOsmCache('lines', key, lines);
+  onProgress?.(1, 1);
+  return lines;
+}
+
+export async function fetchNorthernMySubsFromOSM(
+  minVoltageKV = 132,
+  signal?: AbortSignal,
+  onProgress?: (done: number, total: number) => void,
+): Promise<SubstationFeature[]> {
+  const key = subCacheKey(NORTHERN_MY_BBOX, minVoltageKV);
+  const cached = await readOsmCache<SubstationFeature[]>('substations', key);
+
+  if (cached) {
+    onProgress?.(1, 1);
+    if (Date.now() - cached.fetchedAt > CACHE_TTL_MS) {
+      fetchSubstationsBbox(NORTHERN_MY_BBOX, minVoltageKV)
+        .then((subs) => writeOsmCache('substations', key, subs))
+        .catch(() => {});
+    }
+    return cached.data;
+  }
+
+  const subs = await fetchSubstationsBbox(NORTHERN_MY_BBOX, minVoltageKV, signal);
+  await writeOsmCache('substations', key, subs);
+  onProgress?.(1, 1);
+  return subs;
 }

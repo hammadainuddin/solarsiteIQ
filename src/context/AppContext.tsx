@@ -1,25 +1,8 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import type { DCFInputs, DCFOutputs } from '../utils/financial';
-import type { WorkflowType, PinLocation, DataCentre } from '../types';
+import type { SolarWorkflowType, PinLocation, HexTile, HexScoreDimension, NorthernMyState } from '../types';
 import type { SubstationFeature } from '../data/infraLayers';
 
-export interface DCFRunSnapshot {
-  inputs: DCFInputs;
-  outputs: DCFOutputs;
-  timestamp: number;
-}
-
 export interface AppContextValue {
-  // DCF state
-  lastDCFRun: DCFRunSnapshot | null;
-  setLastDCFRun: (snap: DCFRunSnapshot) => void;
-
-  // Selection
-  selectedDCId: string | null;
-  setSelectedDCId: (id: string | null) => void;
-  hoveredDCId: string | null;
-  setHoveredDCId: (id: string | null) => void;
-
   // Claude assistant
   claudeOpen: boolean;
   setClaudeOpen: (open: boolean) => void;
@@ -28,8 +11,8 @@ export interface AppContextValue {
   openClaudeWithPrompt: (prompt: string) => void;
 
   // Workflows
-  activeWorkflow: WorkflowType | null;
-  setActiveWorkflow: (w: WorkflowType | null) => void;
+  activeWorkflow: SolarWorkflowType | null;
+  setActiveWorkflow: (w: SolarWorkflowType | null) => void;
 
   // Pin drop
   pinLocation: PinLocation | null;
@@ -37,9 +20,15 @@ export interface AppContextValue {
   pinMode: boolean;
   setPinMode: (m: boolean) => void;
 
+  // Hex grid
+  selectedTile: HexTile | null;
+  setSelectedTile: (tile: HexTile | null) => void;
+  activeDimension: HexScoreDimension;
+  setActiveDimension: (d: HexScoreDimension) => void;
+  stateFilter: NorthernMyState | 'All';
+  setStateFilter: (s: NorthernMyState | 'All') => void;
+
   // Uploaded data
-  extraDCs: DataCentre[];
-  addDCs: (dcs: DataCentre[]) => void;
   extraSubstations: SubstationFeature[];
   addSubstations: (subs: SubstationFeature[]) => void;
 }
@@ -47,18 +36,16 @@ export interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [lastDCFRun, setLastDCFRun] = useState<DCFRunSnapshot | null>(null);
-  const [selectedDCId, setSelectedDCId] = useState<string | null>(null);
-  const [hoveredDCId, setHoveredDCId] = useState<string | null>(null);
   const [claudeOpen, setClaudeOpen] = useState(false);
   const [pendingClaudePrompt, setPendingClaudePrompt] = useState<string | null>(null);
-  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowType | null>(null);
+  const [activeWorkflow, setActiveWorkflow] = useState<SolarWorkflowType | null>(null);
   const [pinLocation, setPinLocation] = useState<PinLocation | null>(null);
   const [pinMode, setPinMode] = useState(false);
-  const [extraDCs, setExtraDCs] = useState<DataCentre[]>([]);
+  const [selectedTile, setSelectedTile] = useState<HexTile | null>(null);
+  const [activeDimension, setActiveDimension] = useState<HexScoreDimension>('composite');
+  const [stateFilter, setStateFilter] = useState<NorthernMyState | 'All'>('All');
   const [extraSubstations, setExtraSubstations] = useState<SubstationFeature[]>([]);
 
-  const addDCs = useCallback((dcs: DataCentre[]) => setExtraDCs((prev) => [...prev, ...dcs]), []);
   const addSubstations = useCallback((subs: SubstationFeature[]) => setExtraSubstations((prev) => [...prev, ...subs]), []);
 
   const openClaudeWithPrompt = useCallback((prompt: string) => {
@@ -67,12 +54,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value: AppContextValue = {
-    lastDCFRun,
-    setLastDCFRun,
-    selectedDCId,
-    setSelectedDCId,
-    hoveredDCId,
-    setHoveredDCId,
     claudeOpen,
     setClaudeOpen,
     pendingClaudePrompt,
@@ -84,8 +65,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPinLocation,
     pinMode,
     setPinMode,
-    extraDCs,
-    addDCs,
+    selectedTile,
+    setSelectedTile,
+    activeDimension,
+    setActiveDimension,
+    stateFilter,
+    setStateFilter,
     extraSubstations,
     addSubstations,
   };

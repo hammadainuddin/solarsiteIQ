@@ -1,18 +1,16 @@
 import { useState, useCallback, useRef } from 'react';
 import { buildSystemInstruction, buildContextBlock } from '../utils/assistantContext';
 import { reverseGeocode } from '../utils/spatialContext';
-import type { LocationContext } from '../utils/spatialContext';
-import { buildLocationPrompt } from '../utils/locationPrompts';
+import type { SolarLocationContext } from '../utils/solarContext';
+import { buildSolarPrompt } from '../utils/solarPrompts';
 import { streamLLMResponse } from '../utils/llmClient';
 import { getLLMConfig } from '../utils/llmConfig';
 import { useAppContext } from '../context/AppContext';
-import type { WorkflowResult, WorkflowType } from '../types';
+import type { WorkflowResult, SolarWorkflowType } from '../types';
 
 export type AnalysisStatus = 'idle' | 'loading' | 'done' | 'error';
 
-const ANALYSIS_TIMEOUT_MS = 90_000; // web-search-backed responses can take 40–60 s
-
-// ── JSON scanner ──────────────────────────────────────────────────────────────
+const ANALYSIS_TIMEOUT_MS = 90_000;
 
 function scanJsonEnd(text: string, startIdx: number): number {
   let depth = 0, inStr = false, escape = false;
@@ -60,8 +58,6 @@ function extractJson(text: string): { result: WorkflowResult; endIdx: number } |
   return null;
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────────
-
 export function useWorkflowAnalysis() {
   const [text, setText]         = useState('');
   const [status, setStatus]     = useState<AnalysisStatus>('idle');
@@ -69,9 +65,9 @@ export function useWorkflowAnalysis() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const { lastDCFRun, selectedDCId, hoveredDCId, pinLocation } = useAppContext();
+  const { pinLocation, activeWorkflow } = useAppContext();
 
-  const run = useCallback(async (ctx: LocationContext, workflowType: WorkflowType) => {
+  const run = useCallback(async (ctx: SolarLocationContext, workflowType: SolarWorkflowType) => {
     const config = getLLMConfig();
     if (!config) {
       setErrorMsg('No LLM configured. Add your API key and model via Settings (gear icon in the sidebar).');
@@ -94,21 +90,26 @@ export function useWorkflowAnalysis() {
       ctrl.abort();
     }, ANALYSIS_TIMEOUT_MS);
 
-    // Declared outside try so post-loop code can access them
     let fullText = '';
     let jsonParsed = false;
     let jsonEndIdx = 0;
 
     try {
-      // Reverse-geocode to get accurate country / state / city before building the prompt
-      const geo = await reverseGeocode(ctx.lat, ctx.lng);
-      const enrichedCtx: LocationContext = geo ? { ...ctx, geocoded: geo } : ctx;
+      // Enrich with reverse geocode if not already done
+      let enrichedCtx = ctx;
+      if (!ctx.geocoded) {
+        const geo = await reverseGeocode(ctx.lat, ctx.lng);
+        if (geo) enrichedCtx = { ...ctx, geocoded: geo };
+      }
 
-      const prompt = buildLocationPrompt(workflowType, enrichedCtx);
+      const prompt = buildSolarPrompt(workflowType, enrichedCtx);
 
       const contextBlock = buildContextBlock({
-        lastDCFRun, selectedDCId, hoveredDCId,
-        activeWorkflow: workflowType, pinContext: enrichedCtx,
+        activeWorkflow: workflowType,
+        pinLat: enrichedCtx.lat,
+        pinLng: enrichedCtx.lng,
+        pinState: enrichedCtx.state,
+        pinGeocoded: enrichedCtx.geocoded,
       });
 
       for await (const piece of streamLLMResponse(
@@ -117,11 +118,10 @@ export function useWorkflowAnalysis() {
         ctrl.signal,
       )) {
         if (ctrl.signal.aborted && !timedOut) {
-          // User-initiated abort (back button / clear) — exit immediately
           clearTimeout(timeoutId);
           return;
         }
-        if (ctrl.signal.aborted && timedOut) break; // timeout — keep partial results
+        if (ctrl.signal.aborted && timedOut) break;
 
         fullText += piece;
 
@@ -137,14 +137,11 @@ export function useWorkflowAnalysis() {
         setText(jsonParsed ? fullText.slice(jsonEndIdx).trimStart() : fullText);
       }
     } catch (e) {
-      // The stream reader throws when the AbortSignal fires (e.g. "BodyStreamBuffer
-      // was aborted"). llmClient already swallows abort errors, but as a safety net:
       if (ctrl.signal.aborted) {
         if (!timedOut) {
           clearTimeout(timeoutId);
-          return; // user abort — exit clean
+          return;
         }
-        // timeout threw before llmClient could swallow it — fall through to show results
       } else {
         clearTimeout(timeoutId);
         setErrorMsg(e instanceof Error ? e.message : String(e));
@@ -154,11 +151,8 @@ export function useWorkflowAnalysis() {
     }
 
     clearTimeout(timeoutId);
-
-    // User abort reached via loop break rather than thrown error
     if (ctrl.signal.aborted && !timedOut) return;
 
-    // Final parse: catches models that output JSON at the end of the response
     if (!jsonParsed && fullText) {
       const extracted = extractJson(fullText);
       if (extracted) {
@@ -169,7 +163,7 @@ export function useWorkflowAnalysis() {
     }
 
     setStatus('done');
-  }, [lastDCFRun, selectedDCId, hoveredDCId]);
+  }, [pinLocation, activeWorkflow]);
 
   const clear = useCallback(() => {
     abortRef.current?.abort();

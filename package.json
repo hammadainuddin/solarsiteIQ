@@ -1,5 +1,5 @@
 {
-  "name": "dc-siteiq",
+  "name": "solar-siteiq",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "h3-js": "^4.4.0",
     "idb": "^8.0.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.400.0",
@@ -17,7 +18,8 @@
     "react-dom": "^18.3.1",
     "react-leaflet": "^4.2.1",
     "react-router-dom": "^6.24.0",
-    "recharts": "^2.12.7"
+    "recharts": "^2.12.7",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.8",

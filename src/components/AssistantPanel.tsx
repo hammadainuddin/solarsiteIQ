@@ -2,22 +2,20 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageSquare, X, Send, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { buildSystemInstruction, buildContextBlock } from '../utils/assistantContext';
-import { getLocationContext } from '../utils/spatialContext';
-import { TRANSMISSION_LINES } from '../data/transmissionLines';
 import { streamLLMResponse, type ChatMessage } from '../utils/llmClient';
 import { getLLMConfig, PROVIDER_META } from '../utils/llmConfig';
 
 const SUGGESTED_PROMPTS = [
-  'Compare top 3 SEA sites for IRR potential.',
-  'Why is Johor Bahru attractive vs Singapore?',
-  "What's the BYOP payback at 50% grid displacement?",
-  'Which SEA DCs face the highest grid risk?',
+  'Which northern Malaysia state has the best solar potential?',
+  'What are the key risks for solar in the MADA paddy zone?',
+  'Explain the TNB LSS connection process for a 50 MW project.',
+  'What EIA requirements apply to a 100 MW solar farm in Kedah?',
 ];
 
 export function AssistantPanel() {
   const {
     claudeOpen, setClaudeOpen, pendingClaudePrompt, setPendingClaudePrompt,
-    lastDCFRun, selectedDCId, hoveredDCId, activeWorkflow, pinLocation,
+    activeWorkflow, pinLocation, selectedTile,
   } = useAppContext();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -48,12 +46,13 @@ export function AssistantPanel() {
     setStreaming(true);
 
     try {
-      const pinContext = pinLocation
-        ? getLocationContext(pinLocation.lat, pinLocation.lng, TRANSMISSION_LINES)
-        : null;
-      const contextBlock = buildContextBlock({ lastDCFRun, selectedDCId, hoveredDCId, activeWorkflow, pinContext });
+      const contextBlock = buildContextBlock({
+        activeWorkflow,
+        pinLat: pinLocation?.lat ?? selectedTile?.centerLat,
+        pinLng: pinLocation?.lng ?? selectedTile?.centerLng,
+        pinState: selectedTile?.state,
+      });
 
-      // History excludes the current turn (last two entries we just appended)
       const history = messages.filter((m) => m.content.length > 0);
       const fullMessage = `${contextBlock}\n\n---\n\n${userText.trim()}`;
 
@@ -74,7 +73,7 @@ export function AssistantPanel() {
     } finally {
       setStreaming(false);
     }
-  }, [streaming, messages, lastDCFRun, selectedDCId, hoveredDCId, activeWorkflow, pinLocation]);
+  }, [streaming, messages, activeWorkflow, pinLocation, selectedTile]);
 
   useEffect(() => {
     if (claudeOpen && pendingClaudePrompt && !streaming) {
@@ -107,11 +106,11 @@ export function AssistantPanel() {
     <div className="fixed bottom-5 right-5 z-[1600] w-[420px] h-[640px] max-h-[calc(100vh-40px)] bg-bg border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center">
-            <Sparkles size={14} className="text-accent" />
+          <div className="w-7 h-7 rounded-lg bg-amber-500/20 flex items-center justify-center">
+            <Sparkles size={14} className="text-amber-400" />
           </div>
           <div>
-            <p className="text-white text-sm font-semibold">SiteIQ Assistant</p>
+            <p className="text-white text-sm font-semibold">Solar SiteIQ Assistant</p>
             <p className="text-muted text-[10px]">{config ? `${providerLabel} · ${config.model}` : 'No LLM configured'}</p>
           </div>
         </div>
@@ -172,7 +171,7 @@ export function AssistantPanel() {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={hasConfig ? 'Ask about SEA DCs, your model run, BYOP…' : 'Configure LLM in Settings to chat'}
+          placeholder={hasConfig ? 'Ask about solar sites, grid, land, regulations…' : 'Configure LLM in Settings to chat'}
           disabled={!hasConfig || streaming}
           className="flex-1 bg-surface-2 border border-border rounded-lg px-3 py-2 text-xs text-white placeholder:text-muted focus:outline-none focus:border-accent disabled:opacity-50"
         />
