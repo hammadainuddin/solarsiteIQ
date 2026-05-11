@@ -366,6 +366,118 @@ export async function fetchNorthernMyLinesFromOSM(
   return lines;
 }
 
+// ─── State administrative boundary fetch ─────────────────────────────────────
+
+export interface StateBoundaryGeo {
+  state: 'Perlis' | 'Kedah' | 'Penang' | 'Perak';
+  rings: [number, number][][]; // each ring is a closed polygon [lat, lng][]
+}
+
+const BOUNDARY_CACHE_KEY = 'borders-v1:northern-my';
+
+interface OverpassRelationMember {
+  type: 'way' | 'node';
+  ref: number;
+  role: string;
+  geometry?: { lat: number; lon: number }[];
+}
+
+interface OverpassRelation {
+  type: 'relation';
+  id: number;
+  tags: Record<string, string>;
+  members: OverpassRelationMember[];
+}
+
+function approxEq(a: [number, number], b: [number, number]): boolean {
+  return Math.abs(a[0] - b[0]) < 0.00015 && Math.abs(a[1] - b[1]) < 0.00015;
+}
+
+function stitchRings(segments: [number, number][][]): [number, number][][] {
+  const rings: [number, number][][] = [];
+  const rem = segments.filter((s) => s.length >= 2).map((s) => s.slice() as [number, number][]);
+
+  while (rem.length > 0) {
+    const ring = rem.splice(0, 1)[0].slice() as [number, number][];
+    let budget = rem.length + 1;
+
+    while (budget-- > 0) {
+      if (ring.length > 3 && approxEq(ring[0], ring[ring.length - 1])) break;
+      let matched = false;
+      for (let i = 0; i < rem.length; i++) {
+        const seg = rem[i];
+        const sS = seg[0], sE = seg[seg.length - 1];
+        const rS = ring[0],  rE = ring[ring.length - 1];
+        if (approxEq(rE, sS)) {
+          ring.push(...seg.slice(1)); rem.splice(i, 1); matched = true; break;
+        } else if (approxEq(rE, sE)) {
+          ring.push(...[...seg].reverse().slice(1)); rem.splice(i, 1); matched = true; break;
+        } else if (approxEq(rS, sE)) {
+          ring.unshift(...seg.slice(0, -1)); rem.splice(i, 1); matched = true; break;
+        } else if (approxEq(rS, sS)) {
+          ring.unshift(...[...seg].reverse().slice(0, -1)); rem.splice(i, 1); matched = true; break;
+        }
+      }
+      if (!matched) break;
+    }
+    if (ring.length >= 3) rings.push(ring);
+  }
+  return rings;
+}
+
+function osmNameToState(name: string): StateBoundaryGeo['state'] | null {
+  const n = name.toLowerCase();
+  if (n.includes('perlis'))          return 'Perlis';
+  if (n.includes('kedah'))           return 'Kedah';
+  if (n.includes('pinang') || n.includes('penang')) return 'Penang';
+  if (n.includes('perak'))           return 'Perak';
+  return null;
+}
+
+async function fetchBoundariesFromOverpass(signal?: AbortSignal): Promise<StateBoundaryGeo[]> {
+  const [south, west, north, east] = NORTHERN_MY_BBOX;
+  const query = `[out:json][timeout:90];(relation["boundary"="administrative"]["admin_level"="4"](${south},${west},${north},${east}););out geom;`;
+  const resp = await overpassPost(`data=${encodeURIComponent(query)}`, signal);
+  const data = (await resp.json()) as { elements: OverpassRelation[] };
+
+  const results: StateBoundaryGeo[] = [];
+
+  for (const rel of data.elements) {
+    if (rel.type !== 'relation') continue;
+    const stateName = osmNameToState(rel.tags['name'] ?? rel.tags['name:en'] ?? '');
+    if (!stateName) continue;
+
+    const outerSegs: [number, number][][] = rel.members
+      .filter((m) => m.type === 'way' && m.role === 'outer' && m.geometry && m.geometry.length >= 2)
+      .map((m) => m.geometry!.map((pt) => [pt.lat, pt.lon] as [number, number]));
+
+    const rings = stitchRings(outerSegs);
+    if (rings.length > 0) results.push({ state: stateName, rings });
+  }
+
+  return results;
+}
+
+export async function fetchNorthernMyBoundariesFromOSM(
+  signal?: AbortSignal,
+): Promise<StateBoundaryGeo[]> {
+  const cached = await readOsmCache<StateBoundaryGeo[]>('boundaries', BOUNDARY_CACHE_KEY);
+  if (cached) {
+    if (Date.now() - cached.fetchedAt > CACHE_TTL_MS) {
+      fetchBoundariesFromOverpass()
+        .then((b) => writeOsmCache('boundaries', BOUNDARY_CACHE_KEY, b))
+        .catch(() => {});
+    }
+    return cached.data;
+  }
+
+  const boundaries = await fetchBoundariesFromOverpass(signal);
+  if (boundaries.length > 0) {
+    await writeOsmCache('boundaries', BOUNDARY_CACHE_KEY, boundaries);
+  }
+  return boundaries;
+}
+
 export async function fetchNorthernMySubsFromOSM(
   minVoltageKV = 132,
   signal?: AbortSignal,

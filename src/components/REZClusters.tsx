@@ -51,7 +51,7 @@ export default function REZClusters({ tiles, maxTiles = 25 }: Props) {
                 <strong style={{ color, display: 'block' }}>REZ Candidate #{rank}</strong>
                 <div>Composite: <strong>{tile.scores.composite}</strong>/100</div>
                 <div>Est. capacity: <strong>{fmtCapacity(tile.attributes.estimatedCapacityMW)}</strong></div>
-                <div>Land: {tile.attributes.landUse.replace(/_/g, ' ')} · {tile.state}</div>
+                <div>Land: {tile.attributes.landUse.replace(/_/g, ' ')} · {tile.states.join(' / ')}</div>
                 <div>GHI: {tile.attributes.ghiKwhM2Day} kWh/m²/d</div>
               </div>
             </Tooltip>

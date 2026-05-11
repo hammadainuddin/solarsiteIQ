@@ -1,7 +1,7 @@
 import { openDB } from 'idb';
 
 const DB_NAME    = 'dc-siteiq-osm';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export interface OsmCacheEntry<T> {
   data: T;
@@ -12,11 +12,14 @@ const dbPromise = openDB(DB_NAME, DB_VERSION, {
   upgrade(db) {
     if (!db.objectStoreNames.contains('lines'))       db.createObjectStore('lines');
     if (!db.objectStoreNames.contains('substations')) db.createObjectStore('substations');
+    if (!db.objectStoreNames.contains('boundaries'))  db.createObjectStore('boundaries');
   },
 });
 
+export type OsmStore = 'lines' | 'substations' | 'boundaries';
+
 export async function readOsmCache<T>(
-  store: 'lines' | 'substations',
+  store: OsmStore,
   key: string,
 ): Promise<OsmCacheEntry<T> | null> {
   try {
@@ -28,7 +31,7 @@ export async function readOsmCache<T>(
 }
 
 export async function writeOsmCache<T>(
-  store: 'lines' | 'substations',
+  store: OsmStore,
   key: string,
   data: T,
 ): Promise<void> {
@@ -40,7 +43,7 @@ export async function writeOsmCache<T>(
   }
 }
 
-export async function clearOsmStore(store: 'lines' | 'substations'): Promise<void> {
+export async function clearOsmStore(store: OsmStore): Promise<void> {
   try {
     const db = await dbPromise;
     await db.clear(store);
@@ -48,7 +51,7 @@ export async function clearOsmStore(store: 'lines' | 'substations'): Promise<voi
 }
 
 /** Returns the oldest fetchedAt across all entries in the store (proxy for "last full fetch"). */
-export async function getOsmStoreFetchedAt(store: 'lines' | 'substations'): Promise<number | null> {
+export async function getOsmStoreFetchedAt(store: OsmStore): Promise<number | null> {
   try {
     const db  = await dbPromise;
     const all = await db.getAll(store) as OsmCacheEntry<unknown>[];

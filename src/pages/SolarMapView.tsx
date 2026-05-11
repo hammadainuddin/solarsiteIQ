@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Pane, Marker, useMapEvents, CircleMarker, Tooltip, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Layers, MapPin, Zap, Loader2 } from 'lucide-react';
+import { Layers, MapPin, Zap, Loader2, Settings } from 'lucide-react';
 import { NORTHERN_MY_LINES } from '../data/northernMyTransmissionLines';
 import { NORTHERN_MY_SUBSTATIONS } from '../data/northernMySubstations';
 import HexGridLayer from '../components/HexGridLayer';
@@ -21,6 +21,7 @@ import type { SubstationFeature } from '../data/infraLayers';
 import { fetchNorthernMyLinesFromOSM, fetchNorthernMySubsFromOSM } from '../utils/overpass';
 import { INDUSTRIAL_ZONES, ZONE_TYPE_COLORS, ZONE_TYPE_LABELS } from '../data/industrialZones';
 import type { IndustrialZone } from '../data/industrialZones';
+import StateBoundaries from '../components/StateBoundaries';
 
 const NORTHERN_MY_CENTER: [number, number] = [5.2, 101.0];
 const INITIAL_ZOOM = 7;
@@ -171,14 +172,15 @@ type Basemap = 'dark' | 'satellite';
 
 // ── Layer panel ───────────────────────────────────────────────────────────────
 interface LayerPanelProps {
-  showHex: boolean;   onToggleHex: () => void;
-  showLines: boolean; onToggleLines: () => void;
-  showSubs: boolean;  onToggleSubs: () => void;
-  showREZ: boolean;   onToggleREZ: () => void;
-  showZones: boolean; onToggleZones: () => void;
-  basemap: Basemap;   onBasemapChange: (b: Basemap) => void;
+  showHex: boolean;      onToggleHex: () => void;
+  showLines: boolean;    onToggleLines: () => void;
+  showSubs: boolean;     onToggleSubs: () => void;
+  showREZ: boolean;      onToggleREZ: () => void;
+  showZones: boolean;    onToggleZones: () => void;
+  showBorders: boolean;  onToggleBorders: () => void;
+  basemap: Basemap;      onBasemapChange: (b: Basemap) => void;
 }
-function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, onToggleSubs, showREZ, onToggleREZ, showZones, onToggleZones, basemap, onBasemapChange }: LayerPanelProps) {
+function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, onToggleSubs, showREZ, onToggleREZ, showZones, onToggleZones, showBorders, onToggleBorders, basemap, onBasemapChange }: LayerPanelProps) {
   const [open, setOpen] = useState(false);
   return (
     <div className="absolute top-14 right-3 z-[1000]">
@@ -210,11 +212,12 @@ function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, 
           <div className="border-t border-slate-700 pt-2">
             <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wide mb-2 px-1">Layers</p>
             {[
-              { label: 'Hex scoring grid',        active: showHex,   toggle: onToggleHex,   dot: '#22d3ee' },
-              { label: 'Transmission lines',      active: showLines, toggle: onToggleLines, dot: '#fbbf24' },
-              { label: 'Substations',             active: showSubs,  toggle: onToggleSubs,  dot: '#38bdf8' },
-              { label: 'REZ outlines',            active: showREZ,   toggle: onToggleREZ,   dot: '#22d3ee' },
-              { label: 'Industrial zones & parks',active: showZones, toggle: onToggleZones, dot: '#a855f7' },
+              { label: 'Hex scoring grid',        active: showHex,     toggle: onToggleHex,     dot: '#22d3ee' },
+              { label: 'State borders',           active: showBorders, toggle: onToggleBorders, dot: '#a78bfa' },
+              { label: 'Transmission lines',      active: showLines,   toggle: onToggleLines,   dot: '#fbbf24' },
+              { label: 'Substations',             active: showSubs,    toggle: onToggleSubs,    dot: '#38bdf8' },
+              { label: 'REZ outlines',            active: showREZ,     toggle: onToggleREZ,     dot: '#4ade80' },
+              { label: 'Industrial zones & parks',active: showZones,   toggle: onToggleZones,   dot: '#a855f7' },
             ].map(({ label, active, toggle, dot }) => (
               <button key={label} onClick={toggle}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-800 transition-colors">
@@ -289,14 +292,16 @@ export default function SolarMapView() {
     activeDimension, setActiveDimension,
     stateFilter, setStateFilter,
     extraSubstations,
+    boundaries,
   } = useAppContext();
 
   // Infra layers default OFF — enables on-demand to keep initial load fast
-  const [showHex,   setShowHex]   = useState(true);
-  const [showLines, setShowLines] = useState(false);
-  const [showSubs,  setShowSubs]  = useState(false);
-  const [showREZ,   setShowREZ]   = useState(true);
-  const [showZones, setShowZones] = useState(false);
+  const [showHex,     setShowHex]     = useState(true);
+  const [showBorders, setShowBorders] = useState(false);
+  const [showLines,   setShowLines]   = useState(false);
+  const [showSubs,    setShowSubs]    = useState(false);
+  const [showREZ,     setShowREZ]     = useState(true);
+  const [showZones,   setShowZones]   = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [basemap, setBasemap] = useState<Basemap>('dark');
 
@@ -340,8 +345,8 @@ export default function SolarMapView() {
   );
 
   const tiles = useMemo<HexTile[]>(
-    () => generateNorthernMyHexTiles(NORTHERN_MY_LINES, subs),
-    [subs],
+    () => generateNorthernMyHexTiles(NORTHERN_MY_LINES, subs, boundaries),
+    [subs, boundaries],
   );
 
   const handleTileClick = useCallback((tile: HexTile) => {
@@ -362,10 +367,17 @@ export default function SolarMapView() {
       <aside className="w-80 shrink-0 flex flex-col bg-surface border-r border-border overflow-hidden">
         <div className="h-12 px-4 border-b border-border flex items-center gap-3 shrink-0">
           <Zap size={14} className="text-amber-400" />
-          <div>
+          <div className="flex-1">
             <p className="text-white text-sm font-semibold">Screening Map</p>
             <p className="text-muted text-[10px]">Northern Peninsular Malaysia</p>
           </div>
+          <button
+            onClick={() => setShowSettings(true)}
+            title="Settings"
+            className="p-1.5 rounded-lg text-muted hover:text-white hover:bg-surface-2 transition-colors"
+          >
+            <Settings size={15} />
+          </button>
         </div>
 
         <div className="px-3 py-2 border-b border-border shrink-0">
@@ -443,6 +455,9 @@ export default function SolarMapView() {
             <SubstationMarker key={sub.id} sub={sub} />
           ))}
 
+          {/* State boundary outlines */}
+          {showBorders && <StateBoundaries />}
+
           {/* Industrial zones and technology parks */}
           {showZones && INDUSTRIAL_ZONES.map((zone) => (
             <IndustrialZoneMarker key={zone.id} zone={zone} />
@@ -456,12 +471,13 @@ export default function SolarMapView() {
         <StateFilter active={stateFilter} onChange={setStateFilter} />
         <TileScoreLegend activeDimension={activeDimension} />
         <LayerPanel
-          showHex={showHex}     onToggleHex={() => setShowHex((v) => !v)}
-          showLines={showLines} onToggleLines={() => setShowLines((v) => !v)}
-          showSubs={showSubs}   onToggleSubs={() => setShowSubs((v) => !v)}
-          showREZ={showREZ}     onToggleREZ={() => setShowREZ((v) => !v)}
-          showZones={showZones} onToggleZones={() => setShowZones((v) => !v)}
-          basemap={basemap}     onBasemapChange={setBasemap}
+          showHex={showHex}         onToggleHex={() => setShowHex((v) => !v)}
+          showBorders={showBorders} onToggleBorders={() => setShowBorders((v) => !v)}
+          showLines={showLines}     onToggleLines={() => setShowLines((v) => !v)}
+          showSubs={showSubs}       onToggleSubs={() => setShowSubs((v) => !v)}
+          showREZ={showREZ}         onToggleREZ={() => setShowREZ((v) => !v)}
+          showZones={showZones}     onToggleZones={() => setShowZones((v) => !v)}
+          basemap={basemap}         onBasemapChange={setBasemap}
         />
 
         {/* OSM fetch progress indicator */}

@@ -554,7 +554,7 @@ export interface HexTile {
   h3Index: string;
   centerLat: number;
   centerLng: number;
-  state: NorthernMyState | null;
+  states: NorthernMyState[]; // all states this tile overlaps (multi for border tiles)
   scores: HexTileScores;
   attributes: {
     ghiKwhM2Day: number;

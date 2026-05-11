@@ -65,10 +65,10 @@ export function useWorkflowAnalysis() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const { pinLocation, activeWorkflow } = useAppContext();
+  const { pinLocation, activeWorkflow, sharedLLMConfig } = useAppContext();
 
   const run = useCallback(async (ctx: SolarLocationContext, workflowType: SolarWorkflowType) => {
-    const config = getLLMConfig();
+    const config = sharedLLMConfig ?? getLLMConfig();
     if (!config) {
       setErrorMsg('No LLM configured. Add your API key and model via Settings (gear icon in the sidebar).');
       setStatus('error');
@@ -163,7 +163,7 @@ export function useWorkflowAnalysis() {
     }
 
     setStatus('done');
-  }, [pinLocation, activeWorkflow]);
+  }, [pinLocation, activeWorkflow, sharedLLMConfig]);
 
   const clear = useCallback(() => {
     abortRef.current?.abort();

@@ -72,12 +72,13 @@ export function getSolarContext(
     nearestGridVoltageKV = bestLineVoltage;
   }
 
-  // Rough state assignment
+  // Rough state assignment (same priority order as hexGrid.ts)
   const stateMap: { state: NorthernMyState; south: number; north: number; west: number; east: number }[] = [
     { state: 'Perlis', south: 6.20, north: 6.75, west: 99.90, east: 100.50 },
-    { state: 'Kedah',  south: 5.30, north: 6.40, west: 100.05, east: 101.20 },
+    { state: 'Perak',  south: 5.00, north: 5.65, west: 101.00, east: 102.00 }, // Hulu Perak priority shard
+    { state: 'Kedah',  south: 5.30, north: 6.40, west: 100.05, east: 101.00 },
     { state: 'Penang', south: 5.10, north: 5.55, west: 100.10, east: 100.55 },
-    { state: 'Perak',  south: 3.80, north: 5.40, west: 100.30, east: 102.00 },
+    { state: 'Perak',  south: 3.80, north: 5.65, west: 100.30, east: 102.00 },
   ];
   let state: NorthernMyState | null = null;
   for (const b of stateMap) {

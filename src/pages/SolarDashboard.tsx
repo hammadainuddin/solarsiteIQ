@@ -30,7 +30,7 @@ export default function SolarDashboard({ tiles }: Props) {
 
     const byState: Record<string, { go: number; total: number; avgScore: number; capacityMW: number }> = {};
     for (const t of tiles) {
-      const s = t.state ?? 'Unknown';
+      const s = t.states[0] ?? 'Unknown';
       if (!byState[s]) byState[s] = { go: 0, total: 0, avgScore: 0, capacityMW: 0 };
       byState[s].total++;
       byState[s].avgScore += t.scores.composite;
@@ -119,7 +119,7 @@ export default function SolarDashboard({ tiles }: Props) {
                 {stats.top10.map((tile, i) => (
                   <tr key={tile.h3Index} className="border-b border-border/50 hover:bg-surface-1">
                     <td className="py-1.5 pr-3 text-muted">#{i + 1}</td>
-                    <td className="py-1.5 pr-3 text-white">{tile.state ?? '—'}</td>
+                    <td className="py-1.5 pr-3 text-white">{tile.states.join(' / ') || '—'}</td>
                     <td className="py-1.5 pr-3 text-muted font-mono">{tile.centerLat.toFixed(3)}, {tile.centerLng.toFixed(3)}</td>
                     <td className="py-1.5 pr-3 text-right font-bold text-white">{tile.scores.composite}</td>
                     <td className="py-1.5 pr-3 text-right text-slate-300">{tile.scores.solar}</td>

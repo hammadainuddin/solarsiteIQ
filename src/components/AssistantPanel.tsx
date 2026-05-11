@@ -16,6 +16,7 @@ export function AssistantPanel() {
   const {
     claudeOpen, setClaudeOpen, pendingClaudePrompt, setPendingClaudePrompt,
     activeWorkflow, pinLocation, selectedTile,
+    sharedLLMConfig,
   } = useAppContext();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -24,7 +25,7 @@ export function AssistantPanel() {
   const [error, setError] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
-  const config = getLLMConfig();
+  const config = sharedLLMConfig ?? getLLMConfig();
   const hasConfig = !!config;
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export function AssistantPanel() {
 
   const send = useCallback(async (userText: string) => {
     if (!userText.trim() || streaming) return;
-    const cfg = getLLMConfig();
+    const cfg = sharedLLMConfig ?? getLLMConfig();
     if (!cfg) return;
 
     setError(null);
@@ -50,7 +51,7 @@ export function AssistantPanel() {
         activeWorkflow,
         pinLat: pinLocation?.lat ?? selectedTile?.centerLat,
         pinLng: pinLocation?.lng ?? selectedTile?.centerLng,
-        pinState: selectedTile?.state,
+        pinState: selectedTile?.states?.[0],
       });
 
       const history = messages.filter((m) => m.content.length > 0);

@@ -57,7 +57,7 @@ function HexTilePolygon({
     >
       <Tooltip sticky>
         <div style={{ fontSize: 12, lineHeight: 1.6, minWidth: 180 }}>
-          <strong style={{ display: 'block' }}>{tile.state ?? 'Unknown'}</strong>
+          <strong style={{ display: 'block' }}>{tile.states.length > 0 ? tile.states.join(' / ') : 'Unknown'}</strong>
           <div>{DIMENSION_LABELS[activeDimension]}: <strong>{score}</strong>/100</div>
           <div>Composite: <strong>{tile.scores.composite}</strong> — {scoreToVerdict(tile.scores.composite)}</div>
           <div>GHI: {tile.attributes.ghiKwhM2Day} kWh/m²/d · Land: {tile.attributes.landUse.replace(/_/g, ' ')}</div>
@@ -70,7 +70,7 @@ function HexTilePolygon({
 
 export default function HexGridLayer({ tiles, activeDimension, stateFilter, onTileClick, selectedTileIndex }: Props) {
   const filtered = useMemo(
-    () => (stateFilter === 'All' ? tiles : tiles.filter((t) => t.state === stateFilter)),
+    () => (stateFilter === 'All' ? tiles : tiles.filter((t) => t.states.includes(stateFilter as never))),
     [tiles, stateFilter],
   );
 

@@ -1,15 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import SolarDashboard from './pages/SolarDashboard';
 import SolarMapView from './pages/SolarMapView';
 import { AssistantPanel } from './components/AssistantPanel';
-import { AppProvider } from './context/AppContext';
+import { AppProvider, useAppContext } from './context/AppContext';
 import { AlertTriangle, X } from 'lucide-react';
 import { NORTHERN_MY_LINES } from './data/northernMyTransmissionLines';
 import { NORTHERN_MY_SUBSTATIONS } from './data/northernMySubstations';
 import { generateNorthernMyHexTiles } from './utils/hexGrid';
-import type { HexTile } from './types';
 
 const LOAD_STEPS = [
   'Initializing Solar SiteIQ...',
@@ -51,11 +50,17 @@ function LoadingScreen({ step, progress }: { step: number; progress: number }) {
   );
 }
 
-// Shared tiles computed once — passed as props to avoid re-generating per route
-const SHARED_TILES: HexTile[] = generateNorthernMyHexTiles(NORTHERN_MY_LINES, NORTHERN_MY_SUBSTATIONS);
-
 function AppInner() {
   const [mobileDismissed, setMobileDismissed] = useState(false);
+  const { boundaries } = useAppContext();
+
+  // Tiles re-generate when OSM state boundaries finish loading — initial render
+  // uses the rectangular fallback (instant); the polygon-based pass replaces it
+  // once boundaries arrive (~1–3 s on cold cache, near-instant on warm cache).
+  const tiles = useMemo(
+    () => generateNorthernMyHexTiles(NORTHERN_MY_LINES, NORTHERN_MY_SUBSTATIONS, boundaries),
+    [boundaries],
+  );
 
   return (
     <>
@@ -75,7 +80,7 @@ function AppInner() {
         <Sidebar />
         <main className="flex-1 flex flex-col overflow-hidden">
           <Routes>
-            <Route path="/" element={<SolarDashboard tiles={SHARED_TILES} />} />
+            <Route path="/" element={<SolarDashboard tiles={tiles} />} />
             <Route path="/map" element={<SolarMapView />} />
           </Routes>
         </main>

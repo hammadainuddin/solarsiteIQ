@@ -80,3 +80,25 @@ export function clearLLMConfig(): void {
     localStorage.removeItem(LS_KEY);
   } catch {}
 }
+
+/**
+ * Save config to the shared server store (requires admin password).
+ * Returns { ok: true } on success, or { error: string } on failure.
+ */
+export async function saveSharedConfig(
+  password: string,
+  config: LLMConfig,
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, config }),
+    });
+    const data = await res.json() as { ok?: true; error?: string };
+    if (!res.ok) return { error: data.error ?? `HTTP ${res.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { error: String(err) };
+  }
+}
