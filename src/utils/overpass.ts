@@ -6,6 +6,36 @@ const CACHE_TTL_MS      = 24 * 60 * 60 * 1000;
 const CACHE_VERSION     = 'v6';
 const CACHE_VERSION_SUB = 'sub-v2';
 
+// ─── Server-side Redis cache helpers (L2 between IndexedDB and Overpass) ────────
+// Skipped entirely in local dev (no Vercel runtime).
+
+type ServerCacheType = 'lines' | 'substations' | 'boundaries';
+
+async function readServerCache<T>(type: ServerCacheType): Promise<T | null> {
+  if (import.meta.env.DEV) return null;
+  try {
+    const res = await fetch(`/api/osm-cache?type=${type}`);
+    if (!res.ok) return null;
+    const json = await res.json() as { data: T | null };
+    return json.data;
+  } catch {
+    return null;
+  }
+}
+
+async function writeServerCache<T>(type: ServerCacheType, data: T): Promise<void> {
+  if (import.meta.env.DEV) return;
+  try {
+    await fetch('/api/osm-cache', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, data }),
+    });
+  } catch {
+    // Non-blocking background upload — ignore failures
+  }
+}
+
 // ─── Overpass endpoints (tried in order on each request) ─────────────────────
 
 const OVERPASS_ENDPOINTS = [
@@ -348,20 +378,34 @@ export async function fetchNorthernMyLinesFromOSM(
   onProgress?: (done: number, total: number) => void,
 ): Promise<TransmissionLine[]> {
   const key = lineCacheKey(NORTHERN_MY_BBOX, minVoltageV);
-  const cached = await readOsmCache<TransmissionLine[]>('lines', key);
 
+  // L1 — IndexedDB (instant for returning visitors on the same browser)
+  const cached = await readOsmCache<TransmissionLine[]>('lines', key);
   if (cached) {
     onProgress?.(1, 1);
     if (Date.now() - cached.fetchedAt > CACHE_TTL_MS) {
       fetchLinesBbox(NORTHERN_MY_BBOX, minVoltageV)
-        .then((lines) => writeOsmCache('lines', key, lines))
+        .then((lines) => {
+          writeOsmCache('lines', key, lines);
+          writeServerCache('lines', lines);
+        })
         .catch(() => {});
     }
     return cached.data;
   }
 
+  // L2 — server Redis cache (shared across all visitors, populated after first ever load)
+  const serverCached = await readServerCache<TransmissionLine[]>('lines');
+  if (serverCached && serverCached.length > 0) {
+    await writeOsmCache('lines', key, serverCached); // save locally for next session
+    onProgress?.(1, 1);
+    return serverCached;
+  }
+
+  // L3 — live Overpass fetch (slow, only happens when Redis is cold)
   const lines = await fetchLinesBbox(NORTHERN_MY_BBOX, minVoltageV, signal);
   await writeOsmCache('lines', key, lines);
+  writeServerCache('lines', lines).catch(() => {}); // background upload to Redis
   onProgress?.(1, 1);
   return lines;
 }
@@ -461,19 +505,32 @@ async function fetchBoundariesFromOverpass(signal?: AbortSignal): Promise<StateB
 export async function fetchNorthernMyBoundariesFromOSM(
   signal?: AbortSignal,
 ): Promise<StateBoundaryGeo[]> {
+  // L1 — IndexedDB
   const cached = await readOsmCache<StateBoundaryGeo[]>('boundaries', BOUNDARY_CACHE_KEY);
   if (cached) {
     if (Date.now() - cached.fetchedAt > CACHE_TTL_MS) {
       fetchBoundariesFromOverpass()
-        .then((b) => writeOsmCache('boundaries', BOUNDARY_CACHE_KEY, b))
+        .then((b) => {
+          writeOsmCache('boundaries', BOUNDARY_CACHE_KEY, b);
+          writeServerCache('boundaries', b);
+        })
         .catch(() => {});
     }
     return cached.data;
   }
 
+  // L2 — server Redis cache
+  const serverCached = await readServerCache<StateBoundaryGeo[]>('boundaries');
+  if (serverCached && serverCached.length > 0) {
+    await writeOsmCache('boundaries', BOUNDARY_CACHE_KEY, serverCached);
+    return serverCached;
+  }
+
+  // L3 — live Overpass fetch
   const boundaries = await fetchBoundariesFromOverpass(signal);
   if (boundaries.length > 0) {
     await writeOsmCache('boundaries', BOUNDARY_CACHE_KEY, boundaries);
+    writeServerCache('boundaries', boundaries).catch(() => {});
   }
   return boundaries;
 }
@@ -484,20 +541,34 @@ export async function fetchNorthernMySubsFromOSM(
   onProgress?: (done: number, total: number) => void,
 ): Promise<SubstationFeature[]> {
   const key = subCacheKey(NORTHERN_MY_BBOX, minVoltageKV);
-  const cached = await readOsmCache<SubstationFeature[]>('substations', key);
 
+  // L1 — IndexedDB
+  const cached = await readOsmCache<SubstationFeature[]>('substations', key);
   if (cached) {
     onProgress?.(1, 1);
     if (Date.now() - cached.fetchedAt > CACHE_TTL_MS) {
       fetchSubstationsBbox(NORTHERN_MY_BBOX, minVoltageKV)
-        .then((subs) => writeOsmCache('substations', key, subs))
+        .then((subs) => {
+          writeOsmCache('substations', key, subs);
+          writeServerCache('substations', subs);
+        })
         .catch(() => {});
     }
     return cached.data;
   }
 
+  // L2 — server Redis cache
+  const serverCached = await readServerCache<SubstationFeature[]>('substations');
+  if (serverCached && serverCached.length > 0) {
+    await writeOsmCache('substations', key, serverCached);
+    onProgress?.(1, 1);
+    return serverCached;
+  }
+
+  // L3 — live Overpass fetch
   const subs = await fetchSubstationsBbox(NORTHERN_MY_BBOX, minVoltageKV, signal);
   await writeOsmCache('substations', key, subs);
+  writeServerCache('substations', subs).catch(() => {});
   onProgress?.(1, 1);
   return subs;
 }
