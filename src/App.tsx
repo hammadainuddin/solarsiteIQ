@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import SolarDashboard from './pages/SolarDashboard';
@@ -54,13 +54,13 @@ function AppInner() {
   const [mobileDismissed, setMobileDismissed] = useState(false);
   const { boundaries } = useAppContext();
 
-  // Tiles re-generate when OSM state boundaries finish loading — initial render
-  // uses the rectangular fallback (instant); the polygon-based pass replaces it
-  // once boundaries arrive (~1–3 s on cold cache, near-instant on warm cache).
-  const tiles = useMemo(
-    () => generateNorthernMyHexTiles(NORTHERN_MY_LINES, NORTHERN_MY_SUBSTATIONS, boundaries),
-    [boundaries],
-  );
+  const [tiles, setTiles] = useState<import('./types').HexTile[]>([]);
+  useEffect(() => {
+    if (!boundaries || boundaries.length === 0) return;
+    generateNorthernMyHexTiles(NORTHERN_MY_LINES, NORTHERN_MY_SUBSTATIONS, boundaries)
+      .then(setTiles)
+      .catch(console.error);
+  }, [boundaries]);
 
   return (
     <>

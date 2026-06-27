@@ -551,10 +551,11 @@ export interface HexTileScores {
 }
 
 export interface HexTile {
+  /** For 1 km grid cells this holds the cell ID "swLat3_swLng3"; for legacy H3 tiles it holds the H3 index. */
   h3Index: string;
   centerLat: number;
   centerLng: number;
-  states: NorthernMyState[]; // all states this tile overlaps (multi for border tiles)
+  states: NorthernMyState[];
   scores: HexTileScores;
   attributes: {
     ghiKwhM2Day: number;
@@ -564,8 +565,16 @@ export interface HexTile {
     floodRisk: RiskLevel;
     distToRoadKm: number;
     isProtected: boolean;
-    /** Estimated buildable solar capacity (MW) based on land use, usable fraction and tile area */
+    /** Legacy flat capacity estimate (MW). Use capacityKWp + annualYieldMWh for PVGIS-based values. */
     estimatedCapacityMW: number;
+    /** Installed DC capacity (kWp) for this 1 km² cell based on land use and PVGIS density. */
+    capacityKWp: number;
+    /** PVGIS annual energy yield (kWh/kWp/year) for this cell's location. */
+    pvgisEyKWhPerKWp: number;
+    /** Expected annual generation (MWh/year) = capacityKWp × pvgisEyKWhPerKWp / 1000. */
+    annualYieldMWh: number;
+    /** Raw ESA WorldCover 2021 class code (10=forest, 40=cropland, 50=built-up, 80=water, etc.). */
+    worldcoverClass: number;
   };
 }
 

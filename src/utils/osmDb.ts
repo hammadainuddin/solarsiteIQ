@@ -1,33 +1,25 @@
-import { openDB } from 'idb';
+// OSM client-side cache — DuckDB-backed (replaces IndexedDB/idb).
+// Same public interface as the original so overpass.ts is unchanged.
 
-const DB_NAME    = 'dc-siteiq-osm';
-const DB_VERSION = 2;
+import {
+  readOsmDuckCache, writeOsmDuckCache, clearOsmDuckStore, getOsmDuckStoreFetchedAt,
+} from './duckDb';
 
-export interface OsmCacheEntry<T> {
+export { type OsmCacheEntry } from './duckDb';
+export type OsmStore = 'lines' | 'substations' | 'boundaries';
+
+export interface OsmCacheEntryLocal<T> {
   data: T;
   fetchedAt: number;
 }
 
-const dbPromise = openDB(DB_NAME, DB_VERSION, {
-  upgrade(db) {
-    if (!db.objectStoreNames.contains('lines'))       db.createObjectStore('lines');
-    if (!db.objectStoreNames.contains('substations')) db.createObjectStore('substations');
-    if (!db.objectStoreNames.contains('boundaries'))  db.createObjectStore('boundaries');
-  },
-});
-
-export type OsmStore = 'lines' | 'substations' | 'boundaries';
-
 export async function readOsmCache<T>(
   store: OsmStore,
   key: string,
-): Promise<OsmCacheEntry<T> | null> {
-  try {
-    const db = await dbPromise;
-    return (await db.get(store, key)) ?? null;
-  } catch {
-    return null;
-  }
+): Promise<OsmCacheEntryLocal<T> | null> {
+  const entry = await readOsmDuckCache<T>(store, key);
+  if (!entry) return null;
+  return { data: entry.data, fetchedAt: entry.fetchedAt };
 }
 
 export async function writeOsmCache<T>(
@@ -35,29 +27,13 @@ export async function writeOsmCache<T>(
   key: string,
   data: T,
 ): Promise<void> {
-  try {
-    const db = await dbPromise;
-    await db.put(store, { data, fetchedAt: Date.now() }, key);
-  } catch {
-    // quota or permission error — silently ignore
-  }
+  await writeOsmDuckCache<T>(store, key, data);
 }
 
 export async function clearOsmStore(store: OsmStore): Promise<void> {
-  try {
-    const db = await dbPromise;
-    await db.clear(store);
-  } catch {}
+  await clearOsmDuckStore(store);
 }
 
-/** Returns the oldest fetchedAt across all entries in the store (proxy for "last full fetch"). */
 export async function getOsmStoreFetchedAt(store: OsmStore): Promise<number | null> {
-  try {
-    const db  = await dbPromise;
-    const all = await db.getAll(store) as OsmCacheEntry<unknown>[];
-    if (all.length === 0) return null;
-    return Math.min(...all.map((e) => e.fetchedAt));
-  } catch {
-    return null;
-  }
+  return getOsmDuckStoreFetchedAt(store);
 }

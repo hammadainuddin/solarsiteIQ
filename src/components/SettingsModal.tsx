@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Settings, Eye, EyeOff, Check, ChevronDown, Lock, AlertCircle, Server, Loader2 } from 'lucide-react';
+import { X, Settings, Eye, EyeOff, Check, ChevronDown, Lock, AlertCircle, Server, Loader2, Satellite } from 'lucide-react';
 import {
   getLLMConfig, saveLLMConfig, clearLLMConfig, saveSharedConfig,
   PROVIDER_META,
@@ -27,6 +27,11 @@ export function SettingsModal({ onClose }: Props) {
   const [webSearch, setWebSearch] = useState(true);
   const [showKey, setShowKey]     = useState(false);
 
+  // Copernicus / Sentinel-2 credentials (stored in localStorage)
+  const [copClientId,     setCopClientId]     = useState('');
+  const [copClientSecret, setCopClientSecret] = useState('');
+  const [showCopSecret,   setShowCopSecret]   = useState(false);
+
   // Save state
   const [saving, setSaving]       = useState(false);
   const [saveMsg, setSaveMsg]     = useState<{ type: 'ok' | 'warn' | 'err'; text: string } | null>(null);
@@ -42,6 +47,14 @@ export function SettingsModal({ onClose }: Props) {
       setBaseUrl(cfg.baseUrl ?? '');
       setWebSearch(cfg.webSearch ?? true);
     }
+    // Copernicus credentials always come from localStorage (not shared)
+    try {
+      const cop = JSON.parse(localStorage.getItem('siteiq-copernicus') ?? '{}') as {
+        clientId?: string; clientSecret?: string;
+      };
+      setCopClientId(cop.clientId ?? '');
+      setCopClientSecret(cop.clientSecret ?? '');
+    } catch {}
   }, [unlocked, sharedLLMConfig]);
 
   function handleProviderChange(p: LLMProvider) {
@@ -102,6 +115,14 @@ export function SettingsModal({ onClose }: Props) {
         text: `Server storage unavailable — saved locally only. Set up Upstash Redis in Vercel to enable shared config.`,
       });
     }
+
+    // Save Copernicus credentials locally
+    try {
+      localStorage.setItem('siteiq-copernicus', JSON.stringify({
+        clientId: copClientId.trim(),
+        clientSecret: copClientSecret.trim(),
+      }));
+    } catch {}
 
     if (saveMsg?.type !== 'err') {
       setTimeout(() => setSaveMsg(null), 5000);
@@ -295,6 +316,54 @@ export function SettingsModal({ onClose }: Props) {
                   </p>
                 </div>
               )}
+
+              {/* Copernicus / Sentinel-2 credentials */}
+              <div className="pt-2 border-t border-border space-y-3">
+                <div className="flex items-center gap-2">
+                  <Satellite size={12} className="text-sky-400" />
+                  <p className="text-[11px] font-semibold text-white/70 uppercase tracking-wider">
+                    Sentinel-2 / Copernicus
+                  </p>
+                </div>
+                <p className="text-[10px] text-muted leading-relaxed -mt-1">
+                  Register a free OAuth client at{' '}
+                  <span className="text-white/50 font-mono">dataspace.copernicus.eu</span>{' '}
+                  → User Settings → OAuth clients. Stored locally only.
+                </p>
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-white/70 uppercase tracking-wider">
+                    Client ID
+                  </label>
+                  <input
+                    type="text"
+                    value={copClientId}
+                    onChange={(e) => setCopClientId(e.target.value)}
+                    placeholder="sh-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    className="w-full bg-bg border border-border focus:border-accent rounded-lg px-3 py-2 text-xs text-white placeholder:text-muted/40 outline-none transition-colors font-mono"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-white/70 uppercase tracking-wider">
+                    Client Secret
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showCopSecret ? 'text' : 'password'}
+                      value={copClientSecret}
+                      onChange={(e) => setCopClientSecret(e.target.value)}
+                      placeholder="Your OAuth client secret"
+                      className="w-full bg-bg border border-border focus:border-accent rounded-lg px-3 py-2 text-xs text-white placeholder:text-muted/40 outline-none transition-colors pr-9 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCopSecret((v) => !v)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-white transition-colors"
+                    >
+                      {showCopSecret ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
 
               {/* Web search toggle
                   Track: w-11 h-6 = 44×24 px

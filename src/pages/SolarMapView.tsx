@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Pane, Marker, useMapEvents, CircleMarker, Tooltip, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Layers, MapPin, Zap, Loader2, Settings } from 'lucide-react';
+import { Layers, MapPin, Zap, Loader2, Settings, Satellite } from 'lucide-react';
 import { NORTHERN_MY_LINES } from '../data/northernMyTransmissionLines';
 import { NORTHERN_MY_SUBSTATIONS } from '../data/northernMySubstations';
 import HexGridLayer from '../components/HexGridLayer';
@@ -16,6 +16,8 @@ import { SettingsModal } from '../components/SettingsModal';
 import { useAppContext } from '../context/AppContext';
 import type { HexTile } from '../types';
 import { generateNorthernMyHexTiles } from '../utils/hexGrid';
+import { prefetchPvgisGrid } from '../utils/pvgis';
+import { ensureWorldcoverLoaded } from '../utils/worldcover';
 import type { TransmissionLine } from '../data/transmissionLines';
 import type { SubstationFeature } from '../data/infraLayers';
 import { fetchNorthernMyLinesFromOSM, fetchNorthernMySubsFromOSM } from '../utils/overpass';
@@ -168,7 +170,29 @@ function IndustrialZoneMarker({ zone }: { zone: IndustrialZone }) {
   );
 }
 
-type Basemap = 'dark' | 'satellite';
+// ── Sentinel-2 tile layer helper ─────────────────────────────────────────────
+function sentinel2Url(accessToken: string): string {
+  return (
+    `https://sh.dataspace.copernicus.eu/ogc/wmts/${accessToken}` +
+    `?SERVICE=WMTS&REQUEST=GetTile&TILEMATRIXSET=PopularWebMercator` +
+    `&LAYER=TRUE_COLOR&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}`
+  );
+}
+
+async function fetchSentinel2Token(clientId: string, clientSecret: string): Promise<string | null> {
+  try {
+    const res = await fetch('/api/sentinel2-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, clientSecret }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { accessToken?: string };
+    return data.accessToken ?? null;
+  } catch { return null; }
+}
+
+type Basemap = 'dark' | 'sentinel2';
 
 // ── Layer panel ───────────────────────────────────────────────────────────────
 interface LayerPanelProps {
@@ -179,8 +203,10 @@ interface LayerPanelProps {
   showZones: boolean;    onToggleZones: () => void;
   showBorders: boolean;  onToggleBorders: () => void;
   basemap: Basemap;      onBasemapChange: (b: Basemap) => void;
+  hasCopernicusCreds: boolean;
+  onOpenSettings: () => void;
 }
-function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, onToggleSubs, showREZ, onToggleREZ, showZones, onToggleZones, showBorders, onToggleBorders, basemap, onBasemapChange }: LayerPanelProps) {
+function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, onToggleSubs, showREZ, onToggleREZ, showZones, onToggleZones, showBorders, onToggleBorders, basemap, onBasemapChange, hasCopernicusCreds, onOpenSettings }: LayerPanelProps) {
   const [open, setOpen] = useState(false);
   return (
     <div className="absolute top-14 right-3 z-[1000]">
@@ -196,17 +222,23 @@ function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, 
         <div className="mt-1 bg-slate-900/95 border border-slate-700 rounded-lg p-2.5 shadow-xl min-w-[180px]">
           {/* Basemap switcher */}
           <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wide mb-2 px-1">Basemap</p>
-          <div className="flex gap-1 mb-3 px-1">
-            {(['dark', 'satellite'] as Basemap[]).map((b) => (
-              <button key={b} onClick={() => onBasemapChange(b)}
-                className={`flex-1 text-[10px] py-1 rounded transition-colors capitalize ${
-                  basemap === b
-                    ? 'bg-amber-500 text-white font-semibold'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}>
-                {b === 'satellite' ? '🛰 Satellite' : '🌑 Dark'}
+          <div className="flex flex-col gap-1 mb-3 px-1">
+            <button onClick={() => onBasemapChange('dark')}
+              className={`text-[10px] py-1 rounded transition-colors ${basemap === 'dark' ? 'bg-amber-500 text-white font-semibold' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+              🌑 Dark
+            </button>
+            {hasCopernicusCreds ? (
+              <button onClick={() => onBasemapChange('sentinel2')}
+                className={`text-[10px] py-1 rounded transition-colors ${basemap === 'sentinel2' ? 'bg-sky-600 text-white font-semibold' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                🛰 Sentinel-2
               </button>
-            ))}
+            ) : (
+              <button onClick={onOpenSettings}
+                className="text-[10px] py-1 rounded bg-slate-800 text-slate-500 hover:text-sky-400 hover:bg-slate-700 transition-colors">
+                <Satellite size={10} className="inline mr-1" />
+                Add Copernicus key…
+              </button>
+            )}
           </div>
 
           <div className="border-t border-slate-700 pt-2">
@@ -344,10 +376,100 @@ export default function SolarMapView() {
     [osmSubs, extraSubstations],
   );
 
-  const tiles = useMemo<HexTile[]>(
-    () => generateNorthernMyHexTiles(NORTHERN_MY_LINES, subs, boundaries),
-    [subs, boundaries],
-  );
+  // Async tile generation: WorldCover → PVGIS → 1 km grid
+  const [tiles, setTiles] = useState<HexTile[]>([]);
+  const [precomputeProgress, setPrecomputeProgress] = useState(0);
+  const [precomputePhase, setPrecomputePhase] = useState('');
+  const [totalCells, setTotalCells] = useState(0);
+
+  useEffect(() => {
+    if (!boundaries || boundaries.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setTiles([]);
+        setPrecomputeProgress(0);
+
+        setPrecomputePhase('Loading WorldCover…');
+        await ensureWorldcoverLoaded();
+        if (cancelled) return;
+
+        setPrecomputePhase('Pre-fetching PVGIS…');
+        await prefetchPvgisGrid((done, total) => {
+          if (!cancelled) setPrecomputeProgress(Math.round((done / total) * 40));
+        });
+        if (cancelled) return;
+
+        setPrecomputePhase('Generating grid tiles…');
+        const result = await generateNorthernMyHexTiles(
+          osmLines, subs, boundaries,
+          (done, total) => {
+            if (!cancelled) {
+              setTotalCells(total);
+              setPrecomputeProgress(40 + Math.round((done / total) * 60));
+            }
+          },
+        );
+        if (cancelled) return;
+
+        setTiles(result);
+        setPrecomputeProgress(100);
+        setPrecomputePhase('');
+      } catch (err) {
+        console.error('Tile precompute error:', err);
+        setPrecomputePhase('');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [boundaries]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Copernicus / Sentinel-2 credentials + token management
+  const [sentinel2Token, setSentinel2Token] = useState<string | null>(null);
+  const [hasCopernicusCreds, setHasCopernicusCreds] = useState(false);
+  const s2TimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refreshS2Token = useCallback(async () => {
+    const raw = localStorage.getItem('siteiq-copernicus');
+    if (!raw) return;
+    try {
+      const { clientId, clientSecret } = JSON.parse(raw) as { clientId?: string; clientSecret?: string };
+      if (!clientId?.trim() || !clientSecret?.trim()) return;
+      const token = await fetchSentinel2Token(clientId, clientSecret);
+      if (token) setSentinel2Token(token);
+    } catch { /* ignore */ }
+  }, []);
+
+  // Check Copernicus credentials on mount
+  useEffect(() => {
+    const raw = localStorage.getItem('siteiq-copernicus');
+    if (!raw) return;
+    try {
+      const { clientId, clientSecret } = JSON.parse(raw) as { clientId?: string; clientSecret?: string };
+      if (!clientId?.trim() || !clientSecret?.trim()) return;
+      setHasCopernicusCreds(true);
+      refreshS2Token();
+      s2TimerRef.current = setInterval(refreshS2Token, 9 * 60 * 1000);
+    } catch { /* ignore */ }
+    return () => { if (s2TimerRef.current) clearInterval(s2TimerRef.current); };
+  }, [refreshS2Token]);
+
+  // Re-check credentials after settings modal closes
+  useEffect(() => {
+    if (showSettings) return;
+    const raw = localStorage.getItem('siteiq-copernicus');
+    if (!raw) { setHasCopernicusCreds(false); return; }
+    try {
+      const { clientId, clientSecret } = JSON.parse(raw) as { clientId?: string; clientSecret?: string };
+      const valid = !!(clientId?.trim() && clientSecret?.trim());
+      setHasCopernicusCreds(valid);
+      if (valid && !sentinel2Token) {
+        refreshS2Token();
+        if (!s2TimerRef.current) {
+          s2TimerRef.current = setInterval(refreshS2Token, 9 * 60 * 1000);
+        }
+      }
+    } catch { setHasCopernicusCreds(false); }
+  }, [showSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTileClick = useCallback((tile: HexTile) => {
     setSelectedTile(tile);
@@ -403,19 +525,20 @@ export default function SolarMapView() {
           style={{ height: '100%', width: '100%', background: '#0f172a' }}
           zoomControl={false}
         >
-          {/* Base tiles — dark or satellite depending on user selection */}
-          {basemap === 'dark' ? (
+          {/* Base tiles — dark or Sentinel-2 depending on user selection */}
+          {basemap === 'sentinel2' && sentinel2Token ? (
+            <TileLayer
+              key={`s2-${sentinel2Token.slice(-8)}`}
+              url={sentinel2Url(sentinel2Token)}
+              attribution='&copy; Copernicus/ESA'
+              maxZoom={18}
+              tileSize={256}
+            />
+          ) : (
             <TileLayer
               key="dark"
               url="https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png"
               attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-              maxZoom={19}
-            />
-          ) : (
-            <TileLayer
-              key="satellite"
-              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-              attribution='&copy; <a href="https://www.esri.com/">Esri</a>'
               maxZoom={19}
             />
           )}
@@ -478,6 +601,8 @@ export default function SolarMapView() {
           showREZ={showREZ}         onToggleREZ={() => setShowREZ((v) => !v)}
           showZones={showZones}     onToggleZones={() => setShowZones((v) => !v)}
           basemap={basemap}         onBasemapChange={setBasemap}
+          hasCopernicusCreds={hasCopernicusCreds}
+          onOpenSettings={() => setShowSettings(true)}
         />
 
         {/* OSM fetch progress indicator */}
@@ -491,6 +616,28 @@ export default function SolarMapView() {
                   ? 'Loading transmission lines…'
                   : 'Loading substations…'}
             </span>
+          </div>
+        )}
+
+        {/* Grid precompute progress bar */}
+        {precomputePhase && (
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[2100] bg-slate-900/95 border border-slate-700 rounded-xl px-4 py-2.5 shadow-xl min-w-[280px]">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Loader2 size={12} className="text-amber-400 animate-spin shrink-0" />
+              <span className="text-slate-300 text-xs">{precomputePhase}</span>
+              <span className="ml-auto text-slate-500 text-[10px]">{precomputeProgress}%</span>
+            </div>
+            <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber-400 rounded-full transition-all duration-300"
+                style={{ width: `${precomputeProgress}%` }}
+              />
+            </div>
+            {totalCells > 0 && precomputeProgress >= 40 && (
+              <p className="text-slate-500 text-[10px] mt-1 text-right">
+                {Math.min(Math.round((precomputeProgress - 40) / 60 * totalCells), totalCells).toLocaleString()} / {totalCells.toLocaleString()} cells
+              </p>
+            )}
           </div>
         )}
 
