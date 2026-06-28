@@ -73,6 +73,37 @@ function pointToState(lat: number, lng: number, rings: IndexedRing[]): NorthernM
   return null;
 }
 
+// ── Pre-computed coarse spatial lookup for grid/substation distances ─────────
+// Building a 0.05° resolution lookup grid avoids calling nearestGridInfo (which
+// is O(lines × segments)) for every one of the 52k cells. Instead we pre-build
+// once (~3 000 points) and do O(1) lookups per cell.
+
+interface GridDistEntry { distKm: number; voltageKV: number }
+const DIST_SNAP = 0.05; // degrees (~5 km)
+
+function buildGridDistLookup(
+  lines: TransmissionLine[],
+  subs: SubstationFeature[],
+): Map<string, GridDistEntry> {
+  const lookup = new Map<string, GridDistEntry>();
+  const latMin = +(Math.floor(GRID_BBOX.south / DIST_SNAP) * DIST_SNAP).toFixed(2);
+  const latMax = +(Math.ceil (GRID_BBOX.north  / DIST_SNAP) * DIST_SNAP).toFixed(2);
+  const lngMin = +(Math.floor(GRID_BBOX.west   / DIST_SNAP) * DIST_SNAP).toFixed(2);
+  const lngMax = +(Math.ceil (GRID_BBOX.east    / DIST_SNAP) * DIST_SNAP).toFixed(2);
+  for (let la = +latMin; la <= +latMax + 0.001; la = +(la + DIST_SNAP).toFixed(2)) {
+    for (let lo = +lngMin; lo <= +lngMax + 0.001; lo = +(lo + DIST_SNAP).toFixed(2)) {
+      lookup.set(`${la.toFixed(2)}_${lo.toFixed(2)}`, nearestGridInfo(la, lo, lines, subs));
+    }
+  }
+  return lookup;
+}
+
+function snapGridDist(lat: number, lng: number, lookup: Map<string, GridDistEntry>): GridDistEntry {
+  const la = +(Math.round(lat / DIST_SNAP) * DIST_SNAP).toFixed(2);
+  const lo = +(Math.round(lng / DIST_SNAP) * DIST_SNAP).toFixed(2);
+  return lookup.get(`${la}_${lo}`) ?? { distKm: 50, voltageKV: 132 };
+}
+
 // ── Road distance approximation (same nodes as hexGrid.ts) ───────────────────
 const ROAD_NODES: [number, number][] = [
   [6.40, 100.30], [6.20, 100.38], [6.10, 100.37], [5.98, 100.42],
@@ -185,10 +216,24 @@ function getLandUseForCell(
     floodRisk = zone.floodRisk;
   }
 
-  // 5. Ultimate fallback to GHI-zone estimate from solarZones
+  // 5. WorldCover unavailable (dev mode or API not yet loaded) — use a coarse
+  //    location-aware heuristic so cells render with a realistic score.
+  //    East of 101.3°E is Titiwangsa highlands → forest; coastal strip (<100.6°E
+  //    below 5°N) is mangrove-heavy → mixed_agri; interior lowlands → oil_palm.
   if (wcClass === 0 && !zone) {
-    landUse   = 'unknown';
-    floodRisk = 'low';
+    if (cLng > 101.3) {
+      landUse   = 'forest';
+      floodRisk = 'low';
+    } else if (cLng < 100.6 && cLat < 5.0) {
+      landUse   = 'mixed_agri';
+      floodRisk = 'medium';
+    } else if (cLat > 5.8) {
+      landUse   = 'paddy';      // Kedah/Perlis rice bowl
+      floodRisk = 'medium';
+    } else {
+      landUse   = 'oil_palm';   // interior Perak / south Kedah lowlands
+      floodRisk = 'low';
+    }
   }
 
   return { landUse, floodRisk, isProtected, wcClass };
@@ -200,20 +245,20 @@ function buildCell(
   swLat: number,
   swLng: number,
   states: NorthernMyState[],
-  lines: TransmissionLine[],
-  subs: SubstationFeature[],
+  distLookup: Map<string, GridDistEntry>,
+  roadLookup: Map<string, number>,
 ): HexTile {
   const cLat = +(swLat + GRID_STEP / 2).toFixed(4);
   const cLng = +(swLng + GRID_STEP / 2).toFixed(4);
 
   const { landUse, floodRisk, isProtected, wcClass } = getLandUseForCell(cLat, cLng);
 
-  // PVGIS yield (interpolated from pre-fetched coarse grid)
+  // PVGIS yield (interpolated from pre-fetched coarse grid; defaults if not yet fetched)
   const pvgis = interpolatePvgis(cLat, cLng);
   const ghi   = pvgis.hiY > 0 ? pvgis.hiY / 365 : estimateGHI(cLat, cLng);
 
-  const { distKm: distToGridKm, voltageKV: nearestGridVoltageKV } = nearestGridInfo(cLat, cLng, lines, subs);
-  const distToRoadKm = estimateRoadDistKm(cLat, cLng);
+  const { distKm: distToGridKm, voltageKV: nearestGridVoltageKV } = snapGridDist(cLat, cLng, distLookup);
+  const distToRoadKm = roadLookup.get(`${+(Math.round(cLat / DIST_SNAP) * DIST_SNAP).toFixed(2)}_${+(Math.round(cLng / DIST_SNAP) * DIST_SNAP).toFixed(2)}`) ?? estimateRoadDistKm(cLat, cLng);
   const { capacityKWp, annualYieldMWh } = calcCapacity(landUse, isProtected, pvgis.eY);
 
   const solar       = Math.round(scoreGHI(ghi));
@@ -259,6 +304,7 @@ function buildCell(
 
 /**
  * Generate all 1 km × 1 km grid tiles for northern Malaysia.
+ * Pre-builds spatial lookup grids for O(1) distance queries per cell.
  * Calls `onProgress(done, total)` every 2 000 cells.
  */
 export async function generate1KmTiles(
@@ -268,6 +314,15 @@ export async function generate1KmTiles(
   onProgress?: (done: number, total: number) => void,
 ): Promise<HexTile[]> {
   const rings = buildRingIndex(boundaries);
+
+  // Pre-build O(1) spatial lookup grids — avoids per-cell O(lines × segments) scan
+  const distLookup = buildGridDistLookup(lines, subs);
+  const roadLookup = new Map<string, number>();
+  for (const [key] of distLookup) {
+    const [la, lo] = key.split('_').map(Number);
+    roadLookup.set(key, estimateRoadDistKm(la, lo));
+  }
+
   const tiles: HexTile[] = [];
 
   const latVals: number[] = [];
@@ -290,7 +345,7 @@ export async function generate1KmTiles(
         continue;
       }
 
-      tiles.push(buildCell(swLat, swLng, [state], lines, subs));
+      tiles.push(buildCell(swLat, swLng, [state], distLookup, roadLookup));
       processed++;
 
       if (processed % 2_000 === 0) {

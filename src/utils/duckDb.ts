@@ -96,6 +96,14 @@ export function getDb(): Promise<duckdb.AsyncDuckDB> {
   return _dbPromise;
 }
 
+/** Race DuckDB init against a timeout; returns null if WASM is still loading. */
+export async function getDbSafe(timeoutMs = 6_000): Promise<duckdb.AsyncDuckDB | null> {
+  return Promise.race<duckdb.AsyncDuckDB | null>([
+    getDb().catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+  ]);
+}
+
 // ── Grid cells ────────────────────────────────────────────────────────────────
 
 export interface GridCellRow {
@@ -237,7 +245,8 @@ export async function putPvgisCache(row: PvgisRow): Promise<void> {
 }
 
 export async function getAllPvgisCache(): Promise<PvgisRow[]> {
-  const db = await getDb();
+  const db = await getDbSafe();
+  if (!db) return [];
   const conn = await db.connect();
   try {
     const result = await conn.query('SELECT * FROM pvgis_cache;');
@@ -254,7 +263,8 @@ export async function getAllPvgisCache(): Promise<PvgisRow[]> {
 // ── WorldCover cache ──────────────────────────────────────────────────────────
 
 export async function getWorldcoverCache(bboxKey: string): Promise<number[] | null> {
-  const db = await getDb();
+  const db = await getDbSafe();
+  if (!db) return null;
   const conn = await db.connect();
   try {
     const result = await conn.query(

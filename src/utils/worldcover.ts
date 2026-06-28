@@ -24,16 +24,17 @@ interface WorldCoverResponse {
 }
 
 async function doFetch(): Promise<void> {
-  // Try DuckDB cache first
-  const cached = await getWorldcoverCache(CACHE_KEY).catch(() => null);
-  if (cached && cached.length > 0) {
-    _wcGrid = cached;
+  // In local dev: skip DuckDB (WASM not needed here) and skip the API proxy
+  // (Vercel functions not available). Grid will use the zone-based fallback in grid1km.ts.
+  if (import.meta.env.DEV) {
+    _wcGrid = new Array<number>(GRID_W * GRID_H).fill(0);
     return;
   }
 
-  // Skip server fetch in local dev (no API endpoints available)
-  if (import.meta.env.DEV) {
-    _wcGrid = new Array<number>(GRID_W * GRID_H).fill(0);
+  // Production: try DuckDB cache first (avoids re-fetching the WMS PNG on every load)
+  const cached = await getWorldcoverCache(CACHE_KEY).catch(() => null);
+  if (cached && cached.length > 0) {
+    _wcGrid = cached;
     return;
   }
 

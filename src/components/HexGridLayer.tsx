@@ -86,9 +86,12 @@ function CanvasOverlay({
   const map = useMap();
   const overlayRef = useRef<L.ImageOverlay | null>(null);
 
+  // 1×1 transparent PNG so the overlay element exists but shows nothing before data arrives
+  const BLANK_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAABjE+ibYAAAAASUVORK5CYII=';
+
   // Create overlay once
   useEffect(() => {
-    const overlay = L.imageOverlay('', OVERLAY_BOUNDS, {
+    const overlay = L.imageOverlay(BLANK_PNG, OVERLAY_BOUNDS, {
       opacity: 0.75,
       zIndex: 410,
       interactive: false,

@@ -130,9 +130,13 @@ export async function prefetchPvgisGrid(
 
 /** Ensure the in-memory grid is populated (loads from DuckDB if not already). */
 export async function ensurePvgisGrid(): Promise<void> {
-  if (_pvgisGrid === null) {
-    _pvgisGrid = await loadCacheIntoMemory();
+  if (_pvgisGrid !== null) return;
+  if (import.meta.env.DEV) {
+    // Skip DuckDB in dev — use empty map so interpolatePvgis returns DEFAULT_EY immediately
+    _pvgisGrid = new Map();
+    return;
   }
+  _pvgisGrid = await loadCacheIntoMemory();
 }
 
 /** Default yield for locations not yet in cache (~northern Malaysia average). */
