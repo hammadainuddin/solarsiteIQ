@@ -75,56 +75,96 @@ function pointToState(lat: number, lng: number, rings: IndexedRing[]): NorthernM
   return null;
 }
 
-// ── Pre-computed coarse spatial lookup for grid/substation distances ─────────
-// Building a 0.05° resolution lookup grid avoids calling nearestGridInfo (which
-// is O(lines × segments)) for every one of the 52k cells. Instead we pre-build
-// once (~3 000 points) and do O(1) lookups per cell.
-
-interface GridDistEntry { distKm: number; voltageKV: number }
-const DIST_SNAP = 0.05; // degrees (~5 km)
-
-function buildGridDistLookup(
-  lines: TransmissionLine[],
-  subs: SubstationFeature[],
-): Map<string, GridDistEntry> {
-  const lookup = new Map<string, GridDistEntry>();
-  const latMin = +(Math.floor(GRID_BBOX.south / DIST_SNAP) * DIST_SNAP).toFixed(2);
-  const latMax = +(Math.ceil (GRID_BBOX.north  / DIST_SNAP) * DIST_SNAP).toFixed(2);
-  const lngMin = +(Math.floor(GRID_BBOX.west   / DIST_SNAP) * DIST_SNAP).toFixed(2);
-  const lngMax = +(Math.ceil (GRID_BBOX.east    / DIST_SNAP) * DIST_SNAP).toFixed(2);
-  for (let la = +latMin; la <= +latMax + 0.001; la = +(la + DIST_SNAP).toFixed(2)) {
-    for (let lo = +lngMin; lo <= +lngMax + 0.001; lo = +(lo + DIST_SNAP).toFixed(2)) {
-      lookup.set(`${la.toFixed(2)}_${lo.toFixed(2)}`, nearestGridInfo(la, lo, lines, subs));
-    }
-  }
-  return lookup;
-}
-
-function snapGridDist(lat: number, lng: number, lookup: Map<string, GridDistEntry>): GridDistEntry {
-  const la = +(Math.round(lat / DIST_SNAP) * DIST_SNAP).toFixed(2);
-  const lo = +(Math.round(lng / DIST_SNAP) * DIST_SNAP).toFixed(2);
-  return lookup.get(`${la}_${lo}`) ?? { distKm: 50, voltageKV: 132 };
-}
-
-// ── Road distance approximation (same nodes as hexGrid.ts) ───────────────────
-const ROAD_NODES: [number, number][] = [
-  [6.40, 100.30], [6.20, 100.38], [6.10, 100.37], [5.98, 100.42],
-  [5.82, 100.46], [5.65, 100.49], [5.52, 100.46], [5.38, 100.42],
-  [5.22, 100.41], [5.10, 100.49], [4.98, 100.75], [4.85, 100.96],
-  [4.65, 101.03], [4.30, 101.15], [4.12, 101.28], [3.90, 101.35],
-  [5.68, 100.92], [5.80, 100.74], [5.75, 100.60],
-  [5.42, 101.14], [5.30, 101.22],
+// ── Road distance — polyline-based ───────────────────────────────────────────
+// Major road corridors in northern Peninsular Malaysia as polylines.
+// Using pointToPolylineKm gives the true perpendicular distance to the road,
+// producing smooth continuous contours instead of circular Voronoi blobs.
+const ROAD_POLYLINES: [number, number][][] = [
+  // North-South Expressway (E1) + Federal Route 1 — Kedah/Perlis section
+  [
+    [6.63, 100.43], // Bukit Kayu Hitam (Thai border)
+    [6.42, 100.37], // Jitra
+    [6.27, 100.42], // Kodiang / Kepala Batas
+    [6.12, 100.37], // Alor Setar
+    [5.97, 100.41], // Gurun
+    [5.83, 100.45], // Bedong
+    [5.73, 100.47], // Sungai Petani North
+    [5.65, 100.49], // Sungai Petani
+    [5.56, 100.48], // Bukit Tengah
+    [5.42, 100.40], // Butterworth
+    [5.28, 100.42], // Juru
+    [5.14, 100.53], // Nibong Tebal
+  ],
+  // North-South Expressway (E1) — Perak section
+  [
+    [5.14, 100.53], // Nibong Tebal
+    [5.03, 100.72], // Parit Buntar
+    [4.97, 100.81], // Bagan Serai
+    [4.85, 100.73], // Taiping
+    [4.77, 100.93], // Kuala Kangsar area
+    [4.60, 101.10], // Gopeng
+    [4.55, 101.10], // Ipoh North
+    [4.42, 101.08], // Ipoh
+    [4.30, 101.11], // Simpang Pulai
+    [4.13, 101.19], // Batu Gajah / Kampar area
+    [3.97, 101.22], // Kampar
+    [3.82, 101.27], // Tapah
+    [3.73, 101.30], // Slim River
+  ],
+  // East-West Highway (E8): Butterworth → Gerik → (Kota Bharu direction)
+  [
+    [5.40, 100.40], // Butterworth
+    [5.38, 100.65], // heading east through mainland Penang
+    [5.28, 100.88], // Sungai Siput South
+    [5.25, 100.98], // Lenggong area
+    [5.32, 101.15], // heading north-east to Gerik
+    [5.42, 101.13], // Gerik
+    [5.62, 101.45], // Gerik East (entering Kelantan range)
+  ],
+  // Ipoh → Teluk Intan → Lumut (west Perak coastal road)
+  [
+    [4.42, 101.08], // Ipoh
+    [4.35, 100.97], // Batu Gajah
+    [4.22, 100.88], // heading west
+    [4.08, 100.73], // Sitiawan
+    [3.97, 100.72], // Lumut
+  ],
+  // Taiping → Teluk Intan (west coast Perak)
+  [
+    [4.85, 100.73], // Taiping
+    [4.65, 100.68], // Pantai Remis area
+    [4.40, 100.63], // Bagan Datoh
+    [4.22, 100.63], // Teluk Intan
+  ],
+  // Alor Setar → Baling (east Kedah corridor)
+  [
+    [6.12, 100.37], // Alor Setar
+    [5.97, 100.60], // heading east
+    [5.82, 100.74], // Kuala Nerang area
+    [5.69, 100.91], // Baling
+  ],
+  // Perlis internal (Kangar ↔ Arau ↔ Padang Besar)
+  [
+    [6.45, 100.20], // Kangar
+    [6.52, 100.32], // Arau
+    [6.63, 100.43], // Padang Besar / Changlun
+  ],
 ];
 
 function estimateRoadDistKm(lat: number, lng: number): number {
   let min = Infinity;
   const p = { lat, lng };
-  for (const [rlat, rlng] of ROAD_NODES) {
-    const d = haversineKm(p, { lat: rlat, lng: rlng });
+  for (const poly of ROAD_POLYLINES) {
+    const d = pointToPolylineKm(p, poly);
     if (d < min) min = d;
   }
   return +min.toFixed(1);
 }
+
+// ── Exact transmission-line distance (per cell) ───────────────────────────────
+// Formerly a coarse 0.05° snap lookup, which caused visible 5 km square blocks
+// in the composite score heatmap. Computing per cell is ~150 ms for 25 k cells
+// × 49 lines and removes the quantisation artefact entirely.
 
 function nearestGridInfo(
   lat: number,
@@ -251,20 +291,19 @@ function buildCell(
   swLat: number,
   swLng: number,
   states: NorthernMyState[],
-  distLookup: Map<string, GridDistEntry>,
-  roadLookup: Map<string, number>,
+  lines: TransmissionLine[],
+  subs: SubstationFeature[],
 ): HexTile {
   const cLat = +(swLat + GRID_STEP / 2).toFixed(4);
   const cLng = +(swLng + GRID_STEP / 2).toFixed(4);
 
-  const { landUse, floodRisk, isProtected, wcClass } = getLandUseForCell(cLat, cLng); // OSM → WorldCover → fallback
+  const { landUse, floodRisk, isProtected, wcClass } = getLandUseForCell(cLat, cLng);
 
-  // PVGIS yield (interpolated from pre-fetched coarse grid; defaults if not yet fetched)
   const pvgis = interpolatePvgis(cLat, cLng);
   const ghi   = pvgis.hiY > 0 ? pvgis.hiY / 365 : estimateGHI(cLat, cLng);
 
-  const { distKm: distToGridKm, voltageKV: nearestGridVoltageKV } = snapGridDist(cLat, cLng, distLookup);
-  const distToRoadKm = roadLookup.get(`${+(Math.round(cLat / DIST_SNAP) * DIST_SNAP).toFixed(2)}_${+(Math.round(cLng / DIST_SNAP) * DIST_SNAP).toFixed(2)}`) ?? estimateRoadDistKm(cLat, cLng);
+  const { distKm: distToGridKm, voltageKV: nearestGridVoltageKV } = nearestGridInfo(cLat, cLng, lines, subs);
+  const distToRoadKm = estimateRoadDistKm(cLat, cLng);
   const { capacityKWp, annualYieldMWh } = calcCapacity(landUse, isProtected, pvgis.eY);
 
   const solar       = Math.round(scoreGHI(ghi));
@@ -321,15 +360,6 @@ export async function generate1KmTiles(
   onProgress?: (done: number, total: number) => void,
 ): Promise<HexTile[]> {
   const rings = buildRingIndex(boundaries);
-
-  // Pre-build O(1) spatial lookup grids — avoids per-cell O(lines × segments) scan
-  const distLookup = buildGridDistLookup(lines, subs);
-  const roadLookup = new Map<string, number>();
-  for (const [key] of distLookup) {
-    const [la, lo] = key.split('_').map(Number);
-    roadLookup.set(key, estimateRoadDistKm(la, lo));
-  }
-
   const tiles: HexTile[] = [];
 
   const latVals: number[] = [];
@@ -352,7 +382,7 @@ export async function generate1KmTiles(
         continue;
       }
 
-      tiles.push(buildCell(swLat, swLng, [state], distLookup, roadLookup));
+      tiles.push(buildCell(swLat, swLng, [state], lines, subs));
       processed++;
 
       if (processed % 2_000 === 0) {

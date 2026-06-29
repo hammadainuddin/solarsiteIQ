@@ -15,7 +15,7 @@ import { SettingsModal } from '../components/SettingsModal';
 import { useAppContext } from '../context/AppContext';
 import type { HexTile } from '../types';
 import { generateNorthernMyHexTiles } from '../utils/hexGrid';
-import { prefetchPvgisGrid, ensurePvgisGrid } from '../utils/pvgis';
+import { ensurePvgisGrid } from '../utils/pvgis';
 import { ensureWorldcoverLoaded } from '../utils/worldcover';
 import { ensureOsmLanduseLoaded } from '../utils/osmLanduse';
 import { ensureIplanLanduseLoaded } from '../utils/iplanLanduse';
@@ -399,8 +399,7 @@ export default function SolarMapView() {
         setPrecomputeProgress(100);
         setPrecomputePhase('');
 
-        // Step 6: Background PVGIS fetch — refines yield estimates without blocking the UI
-        prefetchPvgisGrid().catch(console.error);
+        // PVGIS data is pre-baked into public/data/pvgis-grid.json — no background fetch needed
       } catch (err) {
         console.error('Tile precompute error:', err);
         setPrecomputePhase('');
