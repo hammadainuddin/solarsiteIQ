@@ -44,7 +44,7 @@ const OVERPASS_ENDPOINTS = [
   'https://overpass.openstreetmap.ru/api/interpreter',
 ];
 
-async function overpassPost(body: string, signal?: AbortSignal): Promise<Response> {
+export async function overpassPost(body: string, signal?: AbortSignal): Promise<Response> {
   for (const url of OVERPASS_ENDPOINTS) {
     try {
       const resp = await fetch(url, {

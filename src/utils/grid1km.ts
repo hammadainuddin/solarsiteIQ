@@ -18,6 +18,8 @@ import { estimateGHI } from './ghi';
 import { getZoneAt } from '../data/solarZones';
 import { getWorldcoverClass, wcToLandUse, wcToFloodRisk, wcIsProtected } from './worldcover';
 import { interpolatePvgis, calcCapacity } from './pvgis';
+import { getOsmLanduseAt } from './osmLanduse';
+import { getIplanLanduseAt } from './iplanLanduse';
 
 // ── Grid constants ────────────────────────────────────────────────────────────
 export const GRID_STEP  = 0.009; // degrees ≈ 1.0 km at Malaysia's latitude
@@ -171,72 +173,76 @@ export function cellBounds(cellId: string): [number, number][] {
   ];
 }
 
+// ── Geographic paddy zone heuristic ──────────────────────────────────────────
+// When neither iPlan nor OSM has data, WorldCover 2021 cannot distinguish
+// paddy from generic cropland or bare ground (off-season plowed fields).
+// These bboxes match the two largest paddy irrigation schemes in northern MY:
+//   MADA   — Muda Agricultural Development Authority (Kedah + Perlis)
+//   Kerian — IADA Kerian (north Perak, near Kedah border)
+// Within these zones, WorldCover class 40 (cropland) and class 0 (no data)
+// are overwhelmingly paddy, so we promote them rather than falling through
+// to mixed_agri / idle_agri.
+
+const PADDY_ZONES = [
+  { s: 5.60, n: 6.65, w: 99.90, e: 100.75 }, // MADA (Kedah + Perlis)
+  { s: 4.55, n: 5.10, w: 100.35, e: 100.72 }, // IADA Kerian (north Perak)
+] as const;
+
+function isInPaddyZone(lat: number, lng: number): boolean {
+  return PADDY_ZONES.some((z) => lat >= z.s && lat <= z.n && lng >= z.w && lng <= z.e);
+}
+
 // ── Determine land use for a cell ─────────────────────────────────────────────
 // Priority:
 //  1. solarZones.ts protected entries (forest reserves, Ramsar sites)
-//  2. OSM-derived landuse for cropland refinement (paddy / rubber / oil_palm)
-//  3. WorldCover 2021 class
-
-interface OsmLanduse {
-  landUse: LandUseClass;
-  floodRisk: RiskLevel;
-}
+//  2. iPlan GTsemasa  (official MY government current land use — primary)
+//  3. OSM landuse polygon (secondary — fills iPlan gaps)
+//  4. WorldCover 2021 class (tertiary fallback) + paddy zone heuristic
+//  5. Paddy zone default / idle_agri
 
 function getLandUseForCell(
   cLat: number,
   cLng: number,
-  osmLanduse?: OsmLanduse | null,
 ): { landUse: LandUseClass; floodRisk: RiskLevel; isProtected: boolean; wcClass: number } {
   // 1. Protected zone override from solarZones.ts
   const zone = getZoneAt(cLat, cLng);
   if (zone?.isProtected) {
+    return { landUse: zone.landUse, floodRisk: zone.floodRisk, isProtected: true, wcClass: 10 };
+  }
+
+  // 2. iPlan (official Malaysian government land use data)
+  const iplan = getIplanLanduseAt(cLat, cLng);
+  if (iplan) {
+    return { landUse: iplan.landUse, floodRisk: iplan.floodRisk, isProtected: iplan.isProtected, wcClass: 0 };
+  }
+
+  // 3. OSM landuse polygon
+  const osm = getOsmLanduseAt(cLat, cLng);
+  if (osm) {
+    return { landUse: osm.landUse, floodRisk: osm.floodRisk, isProtected: osm.isProtected, wcClass: 0 };
+  }
+
+  // 4. WorldCover 2021 fallback (with paddy zone heuristic)
+  const wcClass = getWorldcoverClass(cLat, cLng);
+  if (wcClass !== 0) {
+    // In MADA / Kerian: WorldCover cropland (40) = paddy with high confidence.
+    // Off-season paddy (plowed bare soil) also often maps to class 60 — promote that too.
+    if (isInPaddyZone(cLat, cLng) && (wcClass === 40 || wcClass === 60)) {
+      return { landUse: 'paddy', floodRisk: 'medium', isProtected: false, wcClass };
+    }
     return {
-      landUse: zone.landUse,
-      floodRisk: zone.floodRisk,
-      isProtected: true,
-      wcClass: 10, // treat as tree cover
+      landUse: wcToLandUse(wcClass),
+      floodRisk: wcToFloodRisk(wcClass),
+      isProtected: wcIsProtected(wcClass),
+      wcClass,
     };
   }
 
-  // 2. WorldCover primary classification
-  const wcClass = getWorldcoverClass(cLat, cLng);
-  let landUse  = wcToLandUse(wcClass);
-  let floodRisk = wcToFloodRisk(wcClass);
-  const isProtected = wcIsProtected(wcClass) || (zone?.isProtected ?? false);
-
-  // 3. Refine cropland (class 40) with OSM landuse polygon data
-  if (wcClass === 40 && osmLanduse) {
-    landUse   = osmLanduse.landUse;
-    floodRisk = osmLanduse.floodRisk;
+  // 5. Last resort — paddy zones default to paddy rather than idle_agri
+  if (isInPaddyZone(cLat, cLng)) {
+    return { landUse: 'paddy', floodRisk: 'medium', isProtected: false, wcClass: 0 };
   }
-
-  // 4. Fall back to zone data if WorldCover returned no-data (class 0)
-  if (wcClass === 0 && zone) {
-    landUse   = zone.landUse;
-    floodRisk = zone.floodRisk;
-  }
-
-  // 5. WorldCover unavailable (dev mode or API not yet loaded) — use a coarse
-  //    location-aware heuristic so cells render with a realistic score.
-  //    East of 101.3°E is Titiwangsa highlands → forest; coastal strip (<100.6°E
-  //    below 5°N) is mangrove-heavy → mixed_agri; interior lowlands → oil_palm.
-  if (wcClass === 0 && !zone) {
-    if (cLng > 101.3) {
-      landUse   = 'forest';
-      floodRisk = 'low';
-    } else if (cLng < 100.6 && cLat < 5.0) {
-      landUse   = 'mixed_agri';
-      floodRisk = 'medium';
-    } else if (cLat > 5.8) {
-      landUse   = 'paddy';      // Kedah/Perlis rice bowl
-      floodRisk = 'medium';
-    } else {
-      landUse   = 'oil_palm';   // interior Perak / south Kedah lowlands
-      floodRisk = 'low';
-    }
-  }
-
-  return { landUse, floodRisk, isProtected, wcClass };
+  return { landUse: 'idle_agri', floodRisk: 'low', isProtected: false, wcClass: 0 };
 }
 
 // ── Build one tile ────────────────────────────────────────────────────────────
@@ -251,7 +257,7 @@ function buildCell(
   const cLat = +(swLat + GRID_STEP / 2).toFixed(4);
   const cLng = +(swLng + GRID_STEP / 2).toFixed(4);
 
-  const { landUse, floodRisk, isProtected, wcClass } = getLandUseForCell(cLat, cLng);
+  const { landUse, floodRisk, isProtected, wcClass } = getLandUseForCell(cLat, cLng); // OSM → WorldCover → fallback
 
   // PVGIS yield (interpolated from pre-fetched coarse grid; defaults if not yet fetched)
   const pvgis = interpolatePvgis(cLat, cLng);
@@ -271,7 +277,8 @@ function buildCell(
   // Availability: proportion of tile area realistically acquirable
   const AVAIL_SCORES: Partial<Record<LandUseClass, number>> = {
     idle_agri: 90, rubber: 70, mixed_agri: 60, oil_palm: 50,
-    paddy: 25, water: 35, urban: 5, forest: 0,
+    paddy: 25, water: 40, industrial: 65, commercial: 55,
+    urban: 5, forest: 0,
   };
   const availability = isProtected ? 0 : ((AVAIL_SCORES[landUse as LandUseClass] ?? 50));
 

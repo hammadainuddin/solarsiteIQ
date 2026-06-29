@@ -6,7 +6,6 @@ import { Layers, MapPin, Zap, Loader2, Settings } from 'lucide-react';
 import { NORTHERN_MY_LINES } from '../data/northernMyTransmissionLines';
 import { NORTHERN_MY_SUBSTATIONS } from '../data/northernMySubstations';
 import HexGridLayer from '../components/HexGridLayer';
-import REZClusters from '../components/REZClusters';
 import TileScoreLegend from '../components/TileScoreLegend';
 import DimensionSelector from '../components/DimensionSelector';
 import StateFilter from '../components/StateFilter';
@@ -18,6 +17,9 @@ import type { HexTile } from '../types';
 import { generateNorthernMyHexTiles } from '../utils/hexGrid';
 import { prefetchPvgisGrid, ensurePvgisGrid } from '../utils/pvgis';
 import { ensureWorldcoverLoaded } from '../utils/worldcover';
+import { ensureOsmLanduseLoaded } from '../utils/osmLanduse';
+import { ensureIplanLanduseLoaded } from '../utils/iplanLanduse';
+import SiteAreaTool from '../components/SiteAreaTool';
 import type { TransmissionLine } from '../data/transmissionLines';
 import type { SubstationFeature } from '../data/infraLayers';
 import { fetchNorthernMyLinesFromOSM, fetchNorthernMySubsFromOSM } from '../utils/overpass';
@@ -177,12 +179,11 @@ interface LayerPanelProps {
   showHex: boolean;      onToggleHex: () => void;
   showLines: boolean;    onToggleLines: () => void;
   showSubs: boolean;     onToggleSubs: () => void;
-  showREZ: boolean;      onToggleREZ: () => void;
   showZones: boolean;    onToggleZones: () => void;
   showBorders: boolean;  onToggleBorders: () => void;
   basemap: Basemap;      onBasemapChange: (b: Basemap) => void;
 }
-function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, onToggleSubs, showREZ, onToggleREZ, showZones, onToggleZones, showBorders, onToggleBorders, basemap, onBasemapChange }: LayerPanelProps) {
+function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, onToggleSubs, showZones, onToggleZones, showBorders, onToggleBorders, basemap, onBasemapChange }: LayerPanelProps) {
   const [open, setOpen] = useState(false);
   return (
     <div className="absolute top-14 right-3 z-[1000]">
@@ -214,7 +215,6 @@ function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, 
               { label: 'State borders',           active: showBorders, toggle: onToggleBorders, dot: '#a78bfa' },
               { label: 'Transmission lines',      active: showLines,   toggle: onToggleLines,   dot: '#fbbf24' },
               { label: 'Substations',             active: showSubs,    toggle: onToggleSubs,    dot: '#38bdf8' },
-              { label: 'REZ outlines',            active: showREZ,     toggle: onToggleREZ,     dot: '#4ade80' },
               { label: 'Industrial zones & parks',active: showZones,   toggle: onToggleZones,   dot: '#a855f7' },
             ].map(({ label, active, toggle, dot }) => (
               <button key={label} onClick={toggle}
@@ -298,10 +298,10 @@ export default function SolarMapView() {
   const [showBorders, setShowBorders] = useState(false);
   const [showLines,   setShowLines]   = useState(false);
   const [showSubs,    setShowSubs]    = useState(false);
-  const [showREZ,     setShowREZ]     = useState(true);
   const [showZones,   setShowZones]   = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [basemap, setBasemap] = useState<Basemap>('dark');
+  const [drawMode, setDrawMode] = useState(false);
 
   // OSM-fetched infra (falls back to static on error)
   const [osmLines, setOsmLines] = useState<TransmissionLine[]>(NORTHERN_MY_LINES);
@@ -342,7 +342,7 @@ export default function SolarMapView() {
     [osmSubs, extraSubstations],
   );
 
-  // Async tile generation: WorldCover → PVGIS → 1 km grid
+  // Async tile generation: WorldCover → iPlan → OSM → PVGIS → 1 km grid
   const [tiles, setTiles] = useState<HexTile[]>([]);
   const [precomputeProgress, setPrecomputeProgress] = useState(0);
   const [precomputePhase, setPrecomputePhase] = useState('');
@@ -361,13 +361,28 @@ export default function SolarMapView() {
         await ensureWorldcoverLoaded();
         if (cancelled) return;
 
-        // Step 2: Load any cached PVGIS data from DuckDB into memory (fast — empty is fine)
-        // Tiles are generated immediately using these values; uncached points use DEFAULT_EY
+        // Step 2: iPlan official land use — non-blocking.
+        // 500 ms is enough for an IndexedDB cache hit to resolve synchronously.
+        // If the remote server is unreachable the grid falls back to OSM/WorldCover;
+        // a successful background load is cached in IndexedDB for the next session.
+        setPrecomputePhase('Loading official land use data…');
+        await Promise.race([
+          ensureIplanLanduseLoaded().catch(() => {}),
+          new Promise<void>((resolve) => setTimeout(resolve, 500)),
+        ]);
+        if (cancelled) return;
+
+        // Step 3: OSM landuse polygons (secondary — fills iPlan gaps, cached 7 days)
+        setPrecomputePhase('Loading OSM land use data…');
+        await ensureOsmLanduseLoaded();
+        if (cancelled) return;
+
+        // Step 4: Load any cached PVGIS data from DuckDB into memory (fast — empty is fine)
         setPrecomputePhase('Loading PVGIS cache…');
         await ensurePvgisGrid();
         if (cancelled) return;
 
-        // Step 3: Generate all 1km tiles — O(1) distance lookups, so fast
+        // Step 5: Generate all 1km tiles — O(1) distance lookups, so fast
         setPrecomputePhase('Building 1 km grid…');
         const result = await generateNorthernMyHexTiles(
           osmLines, subs, boundaries,
@@ -384,7 +399,7 @@ export default function SolarMapView() {
         setPrecomputeProgress(100);
         setPrecomputePhase('');
 
-        // Step 4: Background PVGIS fetch — refines yield estimates without blocking the UI
+        // Step 6: Background PVGIS fetch — refines yield estimates without blocking the UI
         prefetchPvgisGrid().catch(console.error);
       } catch (err) {
         console.error('Tile precompute error:', err);
@@ -425,7 +440,7 @@ export default function SolarMapView() {
           </button>
         </div>
 
-        <div className="px-3 py-2 border-b border-border shrink-0">
+        <div className="px-3 py-2 border-b border-border shrink-0 space-y-1.5">
           <button
             onClick={() => setPinMode(!pinMode)}
             className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-md w-full transition-colors ${
@@ -434,6 +449,17 @@ export default function SolarMapView() {
           >
             <MapPin size={12} />
             {pinMode ? 'Click map to drop a pin — click again to cancel' : 'Drop pin for custom location analysis'}
+          </button>
+          <button
+            onClick={() => { setDrawMode((v) => !v); setPinMode(false); }}
+            className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-md w-full transition-colors ${
+              drawMode ? 'bg-teal-500 text-white' : 'bg-surface-1 text-muted hover:text-white hover:bg-surface-2'
+            }`}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polygon points="3,21 12,3 21,21 3,21" />
+            </svg>
+            {drawMode ? 'Click to add vertices — click near first to close' : 'Draw site area & analyse'}
           </button>
         </div>
 
@@ -484,11 +510,16 @@ export default function SolarMapView() {
               stateFilter={stateFilter}
               onTileClick={handleTileClick}
               selectedTileIndex={selectedTile?.h3Index}
+              disableClicks={drawMode}
             />
           )}
 
-          {/* REZ cluster outlines */}
-          {showREZ && <REZClusters tiles={tiles} />}
+          {/* Site area drawing tool */}
+          <SiteAreaTool
+            tiles={tiles}
+            drawMode={drawMode}
+            onDrawModeChange={setDrawMode}
+          />
 
           {/* Transmission lines — OSM-fetched, falls back to static */}
           {showLines && osmLines.map((line) => (
@@ -520,7 +551,6 @@ export default function SolarMapView() {
           showBorders={showBorders} onToggleBorders={() => setShowBorders((v) => !v)}
           showLines={showLines}     onToggleLines={() => setShowLines((v) => !v)}
           showSubs={showSubs}       onToggleSubs={() => setShowSubs((v) => !v)}
-          showREZ={showREZ}         onToggleREZ={() => setShowREZ((v) => !v)}
           showZones={showZones}     onToggleZones={() => setShowZones((v) => !v)}
           basemap={basemap}         onBasemapChange={setBasemap}
         />

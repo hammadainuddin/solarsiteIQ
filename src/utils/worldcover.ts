@@ -100,8 +100,9 @@ const WC_TO_FLOOD: Record<number, RiskLevel> = {
   60: 'low',
 };
 
-// Classes that are inherently protected
-const PROTECTED_CLASSES = new Set([95]); // Mangroves always protected
+// Classes that are inherently protected.
+// 10 = dense tree cover → Permanent Reserved Forest (PRF) policy in Malaysia
+const PROTECTED_CLASSES = new Set([10, 95]);
 
 /** Map a WorldCover class code to a SiteIQ land use class. */
 export function wcToLandUse(wcClass: number): LandUseClass {

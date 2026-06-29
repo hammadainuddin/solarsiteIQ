@@ -35,8 +35,10 @@ const LAND_USE_SCORES: Record<LandUseClass, number> = {
   rubber:     75,
   mixed_agri: 65,
   oil_palm:   55,
+  industrial: 60, // rooftop — landlord agreement needed
+  commercial: 55, // rooftop — complex ownership/tenancy
   paddy:      35, // food security constraint, conversion requires approval
-  water:      40, // FPV possible but extra permitting
+  water:      45, // FPV viable but extra permitting
   urban:      10,
   forest:      0, // protected / not viable
   unknown:    50,

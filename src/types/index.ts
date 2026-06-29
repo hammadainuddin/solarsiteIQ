@@ -532,6 +532,8 @@ export type LandUseClass =
   | 'oil_palm'
   | 'rubber'
   | 'mixed_agri'
+  | 'industrial'
+  | 'commercial'
   | 'urban'
   | 'forest'
   | 'water'

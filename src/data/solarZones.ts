@@ -85,7 +85,7 @@ export const LAND_ZONES: LandZone[] = [
     id: 'perak-titiwangsa-forest',
     label: 'Titiwangsa / Main Range Forest (Perak)',
     landUse: 'forest', floodRisk: 'low', isProtected: true,
-    bounds: { south: 3.80, north: 6.00, west: 101.30, east: 102.00 },
+    bounds: { south: 3.80, north: 6.00, west: 101.55, east: 102.00 },
   },
 ];
 

@@ -12,19 +12,22 @@ const BBOX = { south: 3.70, north: 7.10, west: 99.50, east: 102.10 };
 // Coarse grid spacing for pre-fetch (0.25° ≈ 28 km)
 const COARSE_STEP = 0.25;
 
-// Ground-mounted solar density (kWp per km²). IEC standard spacing for
-// single-axis trackers at ~2× row pitch gives ~4 500 kWp/km².
-export const SOLAR_DENSITY_KWP_PER_KM2 = 4_500;
+// Ground-mounted solar density — 1 MWp/ha = 100,000 kWp/km² (Malaysian LSS standard)
+export const SOLAR_DENSITY_KWP_PER_KM2 = 100_000;
 
-// Fraction of each 1 km² cell area realistically developable by land use
+// Usable fraction by land use type.
+// Ground-mount: land is cleared when converted to solar → full density regardless of prior crop.
+// FPV / rooftop: physical area constraints apply.
 export const USABLE_FRACTION: Partial<Record<string, number>> = {
-  idle_agri:  0.70,
-  rubber:     0.50,
-  mixed_agri: 0.40,
-  oil_palm:   0.25,
-  paddy:      0.10,
-  water:      0.15,
-  urban:      0.03,
+  idle_agri:  1.00,
+  rubber:     1.00,
+  mixed_agri: 1.00,
+  oil_palm:   1.00,
+  paddy:      1.00,
+  water:      0.70,  // FPV: ~70% of reservoir surface usable
+  industrial: 0.50,  // ~30% rooftop + ~20% carpark of gross area
+  commercial: 0.40,  // ~25% rooftop + ~15% carpark of gross area
+  urban:      0.15,  // residential: smaller pitched roofs
   forest:     0.00,
 };
 

@@ -15,6 +15,7 @@ interface Props {
   stateFilter: string;
   onTileClick: (tile: HexTile) => void;
   selectedTileIndex?: string;
+  disableClicks?: boolean;
 }
 
 const GRID_W = Math.round((GRID_BBOX.east  - GRID_BBOX.west)  / GRID_STEP); // 289
@@ -205,12 +206,15 @@ function DetailRectangles({
 function ClickHandler({
   tileMap,
   onTileClick,
+  disabled,
 }: {
   tileMap: Map<string, HexTile>;
   onTileClick: (tile: HexTile) => void;
+  disabled?: boolean;
 }) {
   useMapEvents({
     click(e) {
+      if (disabled) return;
       const { lat, lng } = e.latlng;
       // Snap to SW corner of 0.009° cell
       const swLat = +(Math.floor((lat - GRID_BBOX.south) / GRID_STEP) * GRID_STEP + GRID_BBOX.south).toFixed(3);
@@ -231,6 +235,7 @@ export default function HexGridLayer({
   stateFilter,
   onTileClick,
   selectedTileIndex,
+  disableClicks,
 }: Props) {
   const tileMap = useRef<Map<string, HexTile>>(new Map());
 
@@ -259,7 +264,7 @@ export default function HexGridLayer({
         selectedTileIndex={selectedTileIndex}
         onTileClick={handleTileClick}
       />
-      <ClickHandler tileMap={tileMap.current} onTileClick={handleTileClick} />
+      <ClickHandler tileMap={tileMap.current} onTileClick={handleTileClick} disabled={disableClicks} />
     </>
   );
 }

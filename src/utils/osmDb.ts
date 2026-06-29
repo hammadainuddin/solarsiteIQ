@@ -4,7 +4,7 @@
 // 10-30 seconds while the WebAssembly module loaded.
 // Boundary GeoJSON is typically <500 KB — well within the 5 MB localStorage limit.
 
-export type OsmStore = 'lines' | 'substations' | 'boundaries';
+export type OsmStore = 'lines' | 'substations' | 'boundaries' | 'landuse';
 
 export interface OsmCacheEntryLocal<T> {
   data: T;
