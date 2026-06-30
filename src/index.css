@@ -120,6 +120,13 @@
   to { stroke-dashoffset: -120; }
 }
 
+/* ── Grid heatmap overlay — bilinear upscaling instead of nearest-neighbour ─ */
+.grid-canvas-overlay img {
+  image-rendering: auto;        /* bilinear on Chrome/Firefox */
+  image-rendering: smooth;      /* CSS4 standard */
+  -ms-interpolation-mode: bicubic; /* IE fallback */
+}
+
 /* ── Side panel slide-in ─────────────────────────────────────────────────── */
 .side-panel-enter {
   animation: slide-in-right 240ms ease-out forwards;

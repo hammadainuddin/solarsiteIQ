@@ -27,11 +27,109 @@ const OVERLAY_BOUNDS: [[number, number], [number, number]] = [
   [+(GRID_BBOX.south + GRID_H * GRID_STEP).toFixed(3), +(GRID_BBOX.west + GRID_W * GRID_STEP).toFixed(3)],
 ];
 
+// ── Continuous perceptual color scale ────────────────────────────────────────
+// Smooth gradient: deep red (0) → orange (35) → amber (50) → yellow-green (65) → green (80+)
+// No hard steps — blends across the full 0–100 range.
+
+const COLOR_STOPS: [number, number, number, number][] = [
+  //  score   R    G    B
+  [    0, 153,  27,  27 ], // deep red
+  [   25, 220,  38,  38 ], // red
+  [   45, 249, 115,  22 ], // orange
+  [   58, 250, 204,  21 ], // yellow
+  [   70, 132, 204,  22 ], // yellow-green
+  [   82,  34, 197,  94 ], // green
+  [  100,  21, 128,  61 ], // deep green
+];
+
 function scoreToRGB(score: number): [number, number, number] {
-  if (score >= 70) return [34, 197, 94];  // green-500
-  if (score >= 45) return [251, 191, 36]; // amber-400
-  return [239, 68, 68];                   // red-500
+  const clamped = Math.max(0, Math.min(100, score));
+  for (let i = 1; i < COLOR_STOPS.length; i++) {
+    const [s0, r0, g0, b0] = COLOR_STOPS[i - 1];
+    const [s1, r1, g1, b1] = COLOR_STOPS[i];
+    if (clamped <= s1) {
+      const t = (clamped - s0) / (s1 - s0);
+      return [
+        Math.round(r0 + (r1 - r0) * t),
+        Math.round(g0 + (g1 - g0) * t),
+        Math.round(b0 + (b1 - b0) * t),
+      ];
+    }
+  }
+  const last = COLOR_STOPS[COLOR_STOPS.length - 1];
+  return [last[1], last[2], last[3]];
 }
+
+// ── Gaussian spatial smoothing ────────────────────────────────────────────────
+// Blends each cell's score with its neighbours (sigma=1.8 ≈ 2 km radius).
+// Removes single-cell anomalies and produces gradual zone transitions while
+// preserving large-scale patterns (forest, paddy, oil palm belts).
+
+const BLUR_SIGMA   = 1.8;
+const BLUR_RADIUS  = 3; // 7×7 kernel
+const BLUR_WEIGHTS: number[] = [];
+(function buildKernel() {
+  for (let dy = -BLUR_RADIUS; dy <= BLUR_RADIUS; dy++)
+    for (let dx = -BLUR_RADIUS; dx <= BLUR_RADIUS; dx++)
+      BLUR_WEIGHTS.push(Math.exp(-(dx * dx + dy * dy) / (2 * BLUR_SIGMA * BLUR_SIGMA)));
+})();
+
+function blurScoreGrid(
+  grid: Float32Array,
+  mask: Uint8Array,
+  w: number,
+  h: number,
+): Float32Array {
+  const out = new Float32Array(grid.length).fill(-1);
+  let ki = 0;
+  for (let dy = -BLUR_RADIUS; dy <= BLUR_RADIUS; dy++) {
+    for (let dx = -BLUR_RADIUS; dx <= BLUR_RADIUS; dx++) {
+      const wt = BLUR_WEIGHTS[ki++];
+      for (let y = 0; y < h; y++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) continue;
+        for (let x = 0; x < w; x++) {
+          const idx = y * w + x;
+          if (!mask[idx]) continue;
+          const nx = x + dx;
+          if (nx < 0 || nx >= w) continue;
+          const nidx = ny * w + nx;
+          if (!mask[nidx]) continue;
+          if (out[idx] < 0) out[idx] = 0;
+          out[idx] += grid[nidx] * wt;
+        }
+      }
+    }
+  }
+  // Normalise by summing weights that contributed
+  const normGrid = new Float32Array(grid.length).fill(-1);
+  ki = 0;
+  for (let dy = -BLUR_RADIUS; dy <= BLUR_RADIUS; dy++) {
+    for (let dx = -BLUR_RADIUS; dx <= BLUR_RADIUS; dx++) {
+      const wt = BLUR_WEIGHTS[ki++];
+      for (let y = 0; y < h; y++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) continue;
+        for (let x = 0; x < w; x++) {
+          const idx = y * w + x;
+          if (!mask[idx]) continue;
+          const nx = x + dx;
+          if (nx < 0 || nx >= w) continue;
+          const nidx = ny * w + nx;
+          if (!mask[nidx]) continue;
+          if (normGrid[idx] < 0) normGrid[idx] = 0;
+          normGrid[idx] += wt;
+        }
+      }
+    }
+  }
+  for (let i = 0; i < out.length; i++) {
+    if (normGrid[i] > 0) out[i] = out[i] / normGrid[i];
+  }
+  return out;
+}
+
+// ── Canvas renderer ───────────────────────────────────────────────────────────
 
 function renderToCanvas(
   tiles: HexTile[],
@@ -39,6 +137,27 @@ function renderToCanvas(
   selectedId: string | undefined,
   stateFilter: string,
 ): string {
+  // 1. Build score + mask grids
+  const scoreGrid = new Float32Array(GRID_W * GRID_H).fill(-1);
+  const maskGrid  = new Uint8Array(GRID_W * GRID_H);
+  const isSelected = new Uint8Array(GRID_W * GRID_H);
+
+  for (const tile of tiles) {
+    if (stateFilter !== 'All' && !tile.states.includes(stateFilter as never)) continue;
+    const [swLat, swLng] = parseCellId(tile.h3Index);
+    const x = Math.round((swLng - GRID_BBOX.west)  / GRID_STEP);
+    const y = GRID_H - 1 - Math.round((swLat - GRID_BBOX.south) / GRID_STEP);
+    if (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) continue;
+    const idx = y * GRID_W + x;
+    scoreGrid[idx] = tile.scores[dimension];
+    maskGrid[idx]  = 1;
+    if (tile.h3Index === selectedId) isSelected[idx] = 1;
+  }
+
+  // 2. Gaussian spatial smoothing
+  const blurred = blurScoreGrid(scoreGrid, maskGrid, GRID_W, GRID_H);
+
+  // 3. Render to canvas
   const canvas = document.createElement('canvas');
   canvas.width  = GRID_W;
   canvas.height = GRID_H;
@@ -46,25 +165,13 @@ function renderToCanvas(
   const imageData = ctx.createImageData(GRID_W, GRID_H);
   const d = imageData.data;
 
-  for (const tile of tiles) {
-    if (stateFilter !== 'All' && !tile.states.includes(stateFilter as never)) continue;
-
-    const [swLat, swLng] = parseCellId(tile.h3Index);
-    const x = Math.round((swLng - GRID_BBOX.west)  / GRID_STEP);
-    const y = GRID_H - 1 - Math.round((swLat - GRID_BBOX.south) / GRID_STEP);
-
-    if (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) continue;
-
-    const score = tile.scores[dimension];
-    const isSelected = tile.h3Index === selectedId;
+  for (let i = 0; i < GRID_W * GRID_H; i++) {
+    if (!maskGrid[i]) continue;
+    const score = blurred[i] >= 0 ? blurred[i] : scoreGrid[i];
     const [r, g, b] = scoreToRGB(score);
-    const alpha = isSelected ? 230 : 160;
-
-    const idx = (y * GRID_W + x) * 4;
-    d[idx]     = r;
-    d[idx + 1] = g;
-    d[idx + 2] = b;
-    d[idx + 3] = alpha;
+    const alpha = isSelected[i] ? 230 : 170;
+    const pi = i * 4;
+    d[pi] = r; d[pi + 1] = g; d[pi + 2] = b; d[pi + 3] = alpha;
   }
 
   ctx.putImageData(imageData, 0, 0);
