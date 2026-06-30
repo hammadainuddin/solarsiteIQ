@@ -24,7 +24,7 @@ const PVGIS_BASE = 'https://re.jrc.ec.europa.eu/api/v5_3/PVcalc';
 
 // Grid parameters — match src/utils/pvgis.ts
 const BBOX = { south: 3.70, north: 7.10, west: 99.50, east: 102.10 };
-const STEP = 0.1; // degrees — finer than the old 0.25° DuckDB grid
+const STEP = 0.05; // degrees — matches PVGIS SARAH-3 native 0.05° resolution
 
 // Fixed-tilt system parameters (typical Malaysian LSS ground-mount)
 const SYSTEM = { peakpower: 1, loss: 14, angle: 10, aspect: 0 }; // 1 kWp, 10° tilt south-facing

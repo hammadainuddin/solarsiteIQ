@@ -20,6 +20,7 @@ import { getWorldcoverClass, wcToLandUse, wcToFloodRisk, wcIsProtected } from '.
 import { interpolatePvgis, calcCapacity } from './pvgis';
 import { getOsmLanduseAt } from './osmLanduse';
 import { getIplanLanduseAt } from './iplanLanduse';
+import { getRoadDistAt } from './roadDistGrid';
 
 // ── Grid constants ────────────────────────────────────────────────────────────
 export const GRID_STEP  = 0.009; // degrees ≈ 1.0 km at Malaysia's latitude
@@ -303,7 +304,7 @@ function buildCell(
   const ghi   = pvgis.hiY > 0 ? pvgis.hiY / 365 : estimateGHI(cLat, cLng);
 
   const { distKm: distToGridKm, voltageKV: nearestGridVoltageKV } = nearestGridInfo(cLat, cLng, lines, subs);
-  const distToRoadKm = estimateRoadDistKm(cLat, cLng);
+  const distToRoadKm = getRoadDistAt(cLat, cLng) ?? estimateRoadDistKm(cLat, cLng);
   const { capacityKWp, annualYieldMWh } = calcCapacity(landUse, isProtected, pvgis.eY);
 
   const solar       = Math.round(scoreGHI(ghi));

@@ -19,6 +19,7 @@ import { ensurePvgisGrid } from '../utils/pvgis';
 import { ensureWorldcoverLoaded } from '../utils/worldcover';
 import { ensureOsmLanduseLoaded } from '../utils/osmLanduse';
 import { ensureIplanLanduseLoaded } from '../utils/iplanLanduse';
+import { ensureRoadDistGrid } from '../utils/roadDistGrid';
 import SiteAreaTool from '../components/SiteAreaTool';
 import type { TransmissionLine } from '../data/transmissionLines';
 import type { SubstationFeature } from '../data/infraLayers';
@@ -378,9 +379,14 @@ export default function SolarMapView() {
         await ensureOsmLanduseLoaded();
         if (cancelled) return;
 
-        // Step 4: Load any cached PVGIS data from DuckDB into memory (fast — empty is fine)
-        setPrecomputePhase('Loading PVGIS cache…');
+        // Step 4: Load PVGIS solar yield grid (IDB-cached, 0.05° resolution)
+        setPrecomputePhase('Loading solar irradiance data…');
         await ensurePvgisGrid();
+        if (cancelled) return;
+
+        // Step 4b: Load road distance grid (IDB-cached, pre-computed per 1km cell)
+        setPrecomputePhase('Loading road access data…');
+        await ensureRoadDistGrid();
         if (cancelled) return;
 
         // Step 5: Generate all 1km tiles — O(1) distance lookups, so fast
