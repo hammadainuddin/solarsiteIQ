@@ -173,7 +173,7 @@ function IndustrialZoneMarker({ zone }: { zone: IndustrialZone }) {
   );
 }
 
-type Basemap = 'dark' | 'satellite';
+type Basemap = 'light' | 'dark' | 'satellite';
 
 // ── Layer panel ───────────────────────────────────────────────────────────────
 interface LayerPanelProps {
@@ -201,10 +201,10 @@ function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, 
           {/* Basemap switcher */}
           <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wide mb-2 px-1">Basemap</p>
           <div className="flex gap-1 mb-3 px-1">
-            {(['dark', 'satellite'] as Basemap[]).map((b) => (
+            {(['light', 'dark', 'satellite'] as Basemap[]).map((b) => (
               <button key={b} onClick={() => onBasemapChange(b)}
                 className={`flex-1 text-[10px] py-1 rounded transition-colors ${basemap === b ? 'bg-amber-500 text-white font-semibold' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-                {b === 'dark' ? '🌑 Dark' : '🛰 Satellite'}
+                {b === 'light' ? '☀ Light' : b === 'dark' ? '🌑 Dark' : '🛰 Sat'}
               </button>
             ))}
           </div>
@@ -301,7 +301,7 @@ export default function SolarMapView() {
   const [showSubs,    setShowSubs]    = useState(false);
   const [showZones,   setShowZones]   = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [basemap, setBasemap] = useState<Basemap>('dark');
+  const [basemap, setBasemap] = useState<Basemap>('light');
   const [drawMode, setDrawMode] = useState(false);
 
   // OSM-fetched infra — state drives map display; pipeline loads fresh values into local vars
@@ -476,10 +476,17 @@ export default function SolarMapView() {
               attribution='&copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics'
               maxZoom={19}
             />
-          ) : (
+          ) : basemap === 'dark' ? (
             <TileLayer
               key="dark"
               url="https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png"
+              attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+              maxZoom={19}
+            />
+          ) : (
+            <TileLayer
+              key="light"
+              url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png"
               attribution='&copy; <a href="https://carto.com/">CARTO</a>'
               maxZoom={19}
             />
@@ -488,7 +495,10 @@ export default function SolarMapView() {
           {/* Labels pane at z-index 650 — above overlayPane (400) + markerPane (600), no pointer events */}
           <Pane name="labelsPane" style={{ zIndex: 650, pointerEvents: 'none' }}>
             <TileLayer
-              url="https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png"
+              key={`labels-${basemap === 'dark' ? 'dark' : 'light'}`}
+              url={basemap === 'dark'
+                ? 'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png'}
               pane="labelsPane"
               attribution=""
             />
