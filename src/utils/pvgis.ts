@@ -41,7 +41,7 @@ export interface PvgisResult {
 
 import { idbGet, idbSet } from './idbCache';
 
-const PVGIS_CACHE_KEY    = 'pvgis-grid-v2'; // bump version if format changes
+const PVGIS_CACHE_KEY    = 'pvgis-grid-v3'; // v3 = 0.05° grid (2179 pts), regenerated 2026-06
 const PVGIS_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — irradiance data is very stable
 
 interface PvgisPoint    { lat: number; lng: number; eY: number; hiY: number; pr: number }

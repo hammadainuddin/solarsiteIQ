@@ -376,6 +376,7 @@ export async function fetchNorthernMyLinesFromOSM(
   minVoltageV = 132_000,
   signal?: AbortSignal,
   onProgress?: (done: number, total: number) => void,
+  onRefresh?: (lines: TransmissionLine[]) => void,
 ): Promise<TransmissionLine[]> {
   const key = lineCacheKey(NORTHERN_MY_BBOX, minVoltageV);
 
@@ -384,10 +385,13 @@ export async function fetchNorthernMyLinesFromOSM(
   if (cached) {
     onProgress?.(1, 1);
     if (Date.now() - cached.fetchedAt > CACHE_TTL_MS) {
+      // Stale-while-revalidate: return cached data immediately, refresh in background,
+      // then notify the caller so the current session gets fresh data too.
       fetchLinesBbox(NORTHERN_MY_BBOX, minVoltageV)
         .then((lines) => {
           writeOsmCache('lines', key, lines);
           writeServerCache('lines', lines);
+          onRefresh?.(lines);
         })
         .catch(() => {});
     }
@@ -539,6 +543,7 @@ export async function fetchNorthernMySubsFromOSM(
   minVoltageKV = 132,
   signal?: AbortSignal,
   onProgress?: (done: number, total: number) => void,
+  onRefresh?: (subs: SubstationFeature[]) => void,
 ): Promise<SubstationFeature[]> {
   const key = subCacheKey(NORTHERN_MY_BBOX, minVoltageKV);
 
@@ -551,6 +556,7 @@ export async function fetchNorthernMySubsFromOSM(
         .then((subs) => {
           writeOsmCache('substations', key, subs);
           writeServerCache('substations', subs);
+          onRefresh?.(subs);
         })
         .catch(() => {});
     }

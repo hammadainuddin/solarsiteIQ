@@ -319,7 +319,10 @@ export default function SolarMapView() {
     linesFetchedRef.current = true;
     const ctrl = new AbortController();
     setLoadingLines(true);
-    fetchNorthernMyLinesFromOSM(132_000, ctrl.signal)
+    fetchNorthernMyLinesFromOSM(
+      132_000, ctrl.signal, undefined,
+      (fresh) => { if (fresh.length > 0) setOsmLines(fresh); }, // apply background refresh
+    )
       .then((lines) => { if (lines.length > 0) setOsmLines(lines); })
       .catch(() => {})
       .finally(() => setLoadingLines(false));
@@ -332,7 +335,10 @@ export default function SolarMapView() {
     subsFetchedRef.current = true;
     const ctrl = new AbortController();
     setLoadingSubs(true);
-    fetchNorthernMySubsFromOSM(132, ctrl.signal)
+    fetchNorthernMySubsFromOSM(
+      132, ctrl.signal, undefined,
+      (fresh) => { if (fresh.length > 0) setOsmSubs(fresh); }, // apply background refresh
+    )
       .then((subs) => { if (subs.length > 0) setOsmSubs(subs); })
       .catch(() => {})
       .finally(() => setLoadingSubs(false));
