@@ -311,9 +311,10 @@ export default function SolarMapView() {
   const linesFetchedRef = useRef(false);
   const subsFetchedRef  = useRef(false);
 
-  // Fetch OSM lines the first time the lines layer is turned on
+  // Prefetch OSM lines on mount — warm IndexedDB cache resolves in ~50 ms so the
+  // toggle shows data instantly; cold cache fetches in background before user clicks.
   useEffect(() => {
-    if (!showLines || linesFetchedRef.current) return;
+    if (linesFetchedRef.current) return;
     linesFetchedRef.current = true;
     const ctrl = new AbortController();
     setLoadingLines(true);
@@ -322,11 +323,11 @@ export default function SolarMapView() {
       .catch(() => {})
       .finally(() => setLoadingLines(false));
     return () => ctrl.abort();
-  }, [showLines]);
+  }, []);
 
-  // Fetch OSM substations the first time the subs layer is turned on
+  // Prefetch OSM substations on mount — same rationale as lines above.
   useEffect(() => {
-    if (!showSubs || subsFetchedRef.current) return;
+    if (subsFetchedRef.current) return;
     subsFetchedRef.current = true;
     const ctrl = new AbortController();
     setLoadingSubs(true);
@@ -335,7 +336,7 @@ export default function SolarMapView() {
       .catch(() => {})
       .finally(() => setLoadingSubs(false));
     return () => ctrl.abort();
-  }, [showSubs]);
+  }, []);
 
   const subs: SubstationFeature[] = useMemo(
     () => [...osmSubs, ...extraSubstations],
