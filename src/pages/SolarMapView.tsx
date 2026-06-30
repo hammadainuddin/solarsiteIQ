@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { MapContainer, TileLayer, Pane, Marker, useMapEvents, CircleMarker, Tooltip, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -304,46 +304,9 @@ export default function SolarMapView() {
   const [basemap, setBasemap] = useState<Basemap>('dark');
   const [drawMode, setDrawMode] = useState(false);
 
-  // OSM-fetched infra (falls back to static on error)
+  // OSM-fetched infra — state drives map display; pipeline loads fresh values into local vars
   const [osmLines, setOsmLines] = useState<TransmissionLine[]>(NORTHERN_MY_LINES);
   const [osmSubs,  setOsmSubs]  = useState<SubstationFeature[]>(NORTHERN_MY_SUBSTATIONS);
-  const [loadingLines, setLoadingLines] = useState(false);
-  const [loadingSubs,  setLoadingSubs]  = useState(false);
-  const linesFetchedRef = useRef(false);
-  const subsFetchedRef  = useRef(false);
-
-  // Prefetch OSM lines on mount — warm IndexedDB cache resolves in ~50 ms so the
-  // toggle shows data instantly; cold cache fetches in background before user clicks.
-  useEffect(() => {
-    if (linesFetchedRef.current) return;
-    linesFetchedRef.current = true;
-    const ctrl = new AbortController();
-    setLoadingLines(true);
-    fetchNorthernMyLinesFromOSM(
-      132_000, ctrl.signal, undefined,
-      (fresh) => { if (fresh.length > 0) setOsmLines(fresh); }, // apply background refresh
-    )
-      .then((lines) => { if (lines.length > 0) setOsmLines(lines); })
-      .catch(() => {})
-      .finally(() => setLoadingLines(false));
-    return () => ctrl.abort();
-  }, []);
-
-  // Prefetch OSM substations on mount — same rationale as lines above.
-  useEffect(() => {
-    if (subsFetchedRef.current) return;
-    subsFetchedRef.current = true;
-    const ctrl = new AbortController();
-    setLoadingSubs(true);
-    fetchNorthernMySubsFromOSM(
-      132, ctrl.signal, undefined,
-      (fresh) => { if (fresh.length > 0) setOsmSubs(fresh); }, // apply background refresh
-    )
-      .then((subs) => { if (subs.length > 0) setOsmSubs(subs); })
-      .catch(() => {})
-      .finally(() => setLoadingSubs(false));
-    return () => ctrl.abort();
-  }, []);
 
   const subs: SubstationFeature[] = useMemo(
     () => [...osmSubs, ...extraSubstations],
@@ -395,10 +358,29 @@ export default function SolarMapView() {
         await ensureRoadDistGrid();
         if (cancelled) return;
 
+        // Step 4c: Fetch transmission lines + substations from IDB (instant on warm cache).
+        // Fetching here gives the pipeline local variables — avoids the stale-closure problem
+        // where generateNorthernMyHexTiles would otherwise use the initial NORTHERN_MY_LINES
+        // snapshot captured when this effect was created.
+        setPrecomputePhase('Loading transmission network…');
+        const [pipelineLines, pipelineSubs] = await Promise.all([
+          fetchNorthernMyLinesFromOSM(
+            132_000, undefined, undefined,
+            (fresh) => { if (!cancelled && fresh.length > 0) setOsmLines(fresh); },
+          ).then((ls) => { if (!cancelled && ls.length > 0) setOsmLines(ls); return ls; }),
+          fetchNorthernMySubsFromOSM(
+            132, undefined, undefined,
+            (fresh) => { if (!cancelled && fresh.length > 0) setOsmSubs(fresh); },
+          ).then((ss) => { if (!cancelled && ss.length > 0) setOsmSubs(ss); return ss; }),
+        ]);
+        if (cancelled) return;
+
+        const allSubs = [...pipelineSubs, ...extraSubstations];
+
         // Step 5: Generate all 1km tiles — O(1) distance lookups, so fast
         setPrecomputePhase('Building 1 km grid…');
         const result = await generateNorthernMyHexTiles(
-          osmLines, subs, boundaries,
+          pipelineLines, allSubs, boundaries,
           (done, total) => {
             if (!cancelled) {
               setTotalCells(total);
@@ -567,19 +549,6 @@ export default function SolarMapView() {
           basemap={basemap}         onBasemapChange={setBasemap}
         />
 
-        {/* OSM fetch progress indicator */}
-        {(loadingLines || loadingSubs) && (
-          <div className="absolute top-14 right-14 z-[1000] flex items-center gap-2 bg-slate-900/95 border border-slate-700 rounded-lg px-3 py-2 shadow-lg">
-            <Loader2 size={13} className="text-amber-400 animate-spin" />
-            <span className="text-slate-300 text-xs">
-              {loadingLines && loadingSubs
-                ? 'Loading grid data…'
-                : loadingLines
-                  ? 'Loading transmission lines…'
-                  : 'Loading substations…'}
-            </span>
-          </div>
-        )}
 
         {/* Grid precompute progress bar */}
         {precomputePhase && (
