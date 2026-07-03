@@ -5,12 +5,12 @@
 // O(1) lookup — no ring traversal needed.
 //
 // File: public/data/iplan-grid.json  {version:2, grid:{[key:string]:string}}
-// Cache: IndexedDB (key "iplan-grid-v1", 30-day TTL)
+// Cache: IndexedDB (key "iplan-grid-v2", 30-day TTL)
 
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-const CACHE_KEY    = 'iplan-grid-v1';
+const CACHE_KEY    = 'iplan-grid-v2'; // v2 = 3-point sampling + corrected PT kod mapping
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {

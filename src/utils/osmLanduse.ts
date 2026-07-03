@@ -7,7 +7,7 @@ import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 import { overpassPost } from './overpass';
 
-const CACHE_KEY = 'northern-my-landuse-v3'; // bump clears old cache when query changes
+const CACHE_KEY = 'northern-my-landuse-v4'; // v4: adds place=village/hamlet/town nodes
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface LanduseRing {
@@ -82,6 +82,9 @@ function pointInRing(lat: number, lng: number, ring: [number, number][]): boolea
 
 interface OverpassElement {
   type: string;
+  id?: number;
+  lat?: number; // present on nodes
+  lon?: number; // present on nodes
   tags?: OsmTags;
   geometry?: { lat: number; lon: number }[];
 }
@@ -91,6 +94,7 @@ interface OverpassElement {
 // Includes:
 //  - ways AND multipolygon relations (large agricultural blocks are often relations in Malaysia)
 //  - landuse=rice_field and crop=rice/paddy variants used by Malaysian OSM contributors
+//  - place=village/hamlet/town/city nodes — primary way kampungs are mapped in OSM Malaysia
 //  - timeout bumped to 120s to handle larger relation result sets
 const OVERPASS_QUERY = `[out:json][timeout:120][bbox:3.7,99.5,7.1,102.1];
 (
@@ -102,6 +106,7 @@ const OVERPASS_QUERY = `[out:json][timeout:120][bbox:3.7,99.5,7.1,102.1];
   relation["type"="multipolygon"]["landuse"~"^(paddy|rubber|oil_palm|farmland|orchard|forest)$"];
   relation["type"="multipolygon"]["landuse"="rice_field"];
   relation["type"="multipolygon"]["crop"~"^(rice|paddy)$"];
+  node["place"~"^(city|town|village|hamlet|suburb|neighbourhood|quarter)$"];
 );
 out geom qt;`;
 
@@ -118,6 +123,14 @@ function parseElements(elements: (OverpassElement & { members?: OverpassRelation
     if (!el.tags) continue;
     const attrs = tagsToAttrs(el.tags);
     if (!attrs) continue;
+
+    if (el.type === 'node' && typeof el.lat === 'number' && typeof el.lon === 'number') {
+      // Place node (village/hamlet/town/city) — create a circle ring around the point
+      // so pointInRing() correctly catches the 1 km cell centre containing this node.
+      pushRing(rings, { landUse: 'urban', floodRisk: 'low', isProtected: false },
+        createCircleRing(el.lat, el.lon));
+      continue;
+    }
 
     if (el.type === 'way' && el.geometry) {
       // Standard closed way
@@ -137,6 +150,20 @@ function parseElements(elements: (OverpassElement & { members?: OverpassRelation
   }
 
   return rings;
+}
+
+// Radius just large enough to guarantee the 1 km cell centre is inside
+// when the place node is anywhere within that cell (max offset = 0.0045°√2 ≈ 0.00636°).
+const PLACE_RING_RADIUS = 0.007; // ~780 m — marks only the containing 1 km cell as urban
+
+function createCircleRing(lat: number, lng: number, radius = PLACE_RING_RADIUS): [number, number][] {
+  const pts: [number, number][] = [];
+  const N = 8;
+  for (let i = 0; i < N; i++) {
+    const a = (2 * Math.PI * i) / N;
+    pts.push([lat + radius * Math.sin(a), lng + radius * Math.cos(a)]);
+  }
+  return pts;
 }
 
 function pushRing(

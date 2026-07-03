@@ -79,7 +79,8 @@ export const LAND_ZONES: LandZone[] = [
     id: 'perak-royal-belum',
     label: 'Royal Belum State Park (Hulu Perak)',
     landUse: 'forest', floodRisk: 'low', isProtected: true,
-    bounds: { south: 5.20, north: 5.72, west: 101.08, east: 101.70 },
+    bounds: { south: 5.20, north: 5.72, west: 101.25, east: 101.70 },
+    // west was 101.08 — narrowed to 101.25 to exclude Perak River valley agriculture near Gerik
   },
   {
     id: 'perak-titiwangsa-forest',

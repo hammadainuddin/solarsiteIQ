@@ -28,7 +28,7 @@ const IPLAN_BASE = 'https://scharms.planmalaysia.gov.my/arcgis/rest/services/iPL
 // Grid constants — must match src/utils/grid1km.ts exactly
 const GRID_STEP  = 0.009;
 const GRID_BBOX  = { south: 3.700, north: 7.100, west: 99.500, east: 102.100 };
-const CONCURRENCY = 50;
+const CONCURRENCY = 15;
 const TIMEOUT_MS  = 15_000;
 
 // State services — checked in priority order (smallest/most specific first)
@@ -54,20 +54,22 @@ function getServiceUrl(cLat, cLng) {
 function iplanToLandUse(attrs) {
   const g1  = (attrs.gunatanah1 ?? '').trim();
   const g2  = (attrs.gunatanah2 ?? '').toLowerCase();
-  const g3  = (attrs.gunatanah3 ?? '').toLowerCase(); // gunatanah3 holds crop type, not gunatanah2
+  const g3  = (attrs.gunatanah3 ?? '').toLowerCase(); // gunatanah3 holds crop type
   const kod = (attrs.kod_gtn    ?? '').toUpperCase();
 
   if (g1 === 'Hutan') {
-    // HT402 = plantation/community forest — not protected reserve
     if (kod.startsWith('HT402')) return 'idle_agri';
-    return 'forest'; // most Hutan = protected reserve forest
+    return 'forest';
   }
   if (g1 === 'Pertanian') {
-    // Crop type is stored in gunatanah3 (e.g. "Padi", "Kelapa Sawit", "Getah").
-    // gunatanah2 is usually "Tanaman" or "Pertanian" (generic). Check both to be safe.
+    // kod_gtn is the authoritative field — check it first before free-text matching
+    if (kod === 'PT101') return 'oil_palm'; // Kelapa Sawit
+    if (kod === 'PT102') return 'rubber';   // Getah
+    if (kod === 'PT103') return 'paddy';    // Padi
+    // Oil palm text check BEFORE rubber — avoids false rubber from ambiguous records
+    if (g3.includes('kelapa sawit') || g3.includes('oil palm') || g2.includes('kelapa sawit')) return 'oil_palm';
+    if (g3.includes('getah') || g3.includes('rubber') || g2.includes('getah')) return 'rubber';
     if (g3.includes('padi') || g3.includes('paddy') || g2.includes('padi') || g2.includes('paddy')) return 'paddy';
-    if (g3.includes('getah') || g3.includes('rubber') || g2.includes('getah') || g2.includes('rubber')) return 'rubber';
-    if (g3.includes('kelapa sawit') || g3.includes('oil palm') || g2.includes('kelapa sawit') || kod === 'PT101') return 'oil_palm';
     if (g3.includes('tidak diusahakan') || g3.includes('terbiar') || g3.includes('kosong')) return 'idle_agri';
     if (g2.includes('penternakan') || g2.includes('ternakan') || g3.includes('penternakan') || g3.includes('ternakan')) return 'mixed_agri';
     return 'mixed_agri';
@@ -75,17 +77,47 @@ function iplanToLandUse(attrs) {
   if (g1 === 'Tanah Kosong')      return 'idle_agri';
   if (g1 === 'Tanah Pembangunan') return 'urban';
   if (g1 === 'Badan Air') {
-    // Skip rivers and sea — FPV not viable; return null so cell falls to OSM/WorldCover
     const notFpv = g2.includes('sungai') || g3.includes('sungai')
                 || g2.includes('laut')   || g3.includes('laut')
                 || g2.includes('selat')  || g3.includes('selat');
     if (notFpv) return null;
     return 'water';
   }
-  if (g1 === 'Industri')  return 'industrial';
-  if (g1 === 'Komersial') return 'commercial';
-  if (g1 === 'Perumahan') return 'urban';
-  return null; // unknown / not relevant
+  if (g1 === 'Industri')       return 'industrial';
+  if (g1 === 'Komersial')      return 'commercial';
+  if (g1 === 'Perumahan')      return 'urban';
+  if (g1 === 'Pengangkutan')                     return 'urban'; // bus stations, airports
+  if (g1 === 'Infrastruktur dan Utiliti')        return 'urban'; // actual combined g1 value
+  if (g1 === 'Institusi dan Kemudahan Masyarakat') return 'urban'; // actual combined g1 value
+  if (g1 === 'Pembangunan Bercampur')            return 'urban'; // mixed-use development
+  if (g1 === 'Tanah Lapang dan Rekreasi')        return 'urban'; // parks, sports fields, stadiums
+  // Legacy / variant spellings (some services use shorter forms)
+  if (g1 === 'Institusi')      return 'urban';
+  if (g1 === 'Kemudahan Awam') return 'urban';
+  if (g1 === 'Infrastruktur')  return 'urban';
+  if (g1 === 'Utiliti')        return 'urban';
+  return null;
+}
+
+// ── Multi-point resolution ────────────────────────────────────────────────────
+// Urban/institutional presence in any sub-point overrides agricultural labels —
+// catches kampungs whose 1 km cell centre lands in surrounding plantation.
+// For agricultural classes, highest-priority result wins.
+
+const LU_PRIORITY = {
+  industrial: 9, commercial: 8, urban: 7,
+  paddy: 6, oil_palm: 5, rubber: 4, mixed_agri: 3, idle_agri: 2, water: 1, forest: 0,
+};
+
+function resolveResults(results) {
+  const valid = results.filter(Boolean);
+  if (valid.length === 0) return null;
+  for (const cls of ['industrial', 'commercial', 'urban']) {
+    if (valid.includes(cls)) return cls;
+  }
+  return valid.reduce((best, lu) =>
+    (LU_PRIORITY[lu] ?? -1) > (LU_PRIORITY[best] ?? -1) ? lu : best
+  );
 }
 
 // ── Point query ───────────────────────────────────────────────────────────────
@@ -112,6 +144,23 @@ async function queryPoint(serviceUrl, cLat, cLng) {
   const feat = data.features?.[0];
   if (!feat) return null;
   return iplanToLandUse(feat.attributes ?? {});
+}
+
+// ── 5-point cell query ────────────────────────────────────────────────────────
+// Samples centre + 4 corners at ±0.003° (~333m) to catch small villages/estates
+// whose parcel polygon doesn't cover the cell centre.
+
+async function queryCell(svcUrl, cLat, cLng) {
+  const OFF = 0.003;
+  const points = [
+    [cLat,       cLng      ], // centre (primary)
+    [cLat + OFF, cLng + OFF], // NE corner
+    [cLat - OFF, cLng - OFF], // SW corner — 3 points covers most village scenarios
+  ];
+  const results = await Promise.all(
+    points.map(([la, lo]) => queryPoint(svcUrl, la, lo).catch(() => null))
+  );
+  return resolveResults(results);
 }
 
 // ── Concurrency pool ──────────────────────────────────────────────────────────
@@ -144,15 +193,15 @@ async function main() {
     }
   }
 
-  console.log(`iPlan point-sampling: ${cells.length} cells across 4 states\n`);
-  console.log(`Concurrency: ${CONCURRENCY}  ·  Timeout: ${TIMEOUT_MS / 1000}s per cell\n`);
+  console.log(`iPlan point-sampling: ${cells.length} cells × 3 points = ${cells.length * 3} queries across 4 states\n`);
+  console.log(`Concurrency: ${CONCURRENCY}  ·  Timeout: ${TIMEOUT_MS / 1000}s per point\n`);
 
   const grid = {};
   let done = 0, hits = 0;
   const startMs = Date.now();
 
   const tasks = cells.map((cell) => async () => {
-    const lu = await queryPoint(cell.svcUrl, cell.cLat, cell.cLng);
+    const lu = await queryCell(cell.svcUrl, cell.cLat, cell.cLng);
     done++;
     if (lu) {
       grid[`${cell.cLat.toFixed(4)}_${cell.cLng.toFixed(4)}`] = lu;
