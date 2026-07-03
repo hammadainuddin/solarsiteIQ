@@ -7,7 +7,7 @@ import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 import { overpassPost } from './overpass';
 
-const CACHE_KEY = 'northern-my-landuse-v4'; // v4: adds place=village/hamlet/town nodes
+const CACHE_KEY = 'northern-my-landuse-v5'; // v5: river polygons → forest; FPV lakes only
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface LanduseRing {
@@ -54,7 +54,16 @@ function tagsToAttrs(tags: OsmTags): LanduseAttrs | null {
   if (lu === 'commercial')                           return { landUse: 'commercial', floodRisk: 'low',    isProtected: false };
   if (lu === 'quarry')                               return { landUse: 'urban',      floodRisk: 'low',    isProtected: false };
   if (lu === 'reservoir')                            return { landUse: 'water',      floodRisk: 'low',    isProtected: false };
-  if (nat === 'water')                               return { landUse: 'water',      floodRisk: 'low',    isProtected: false };
+  if (nat === 'water') {
+    // Distinguish rivers/canals (no FPV) from still water bodies (FPV at 30%)
+    const waterType = tags['water'] ?? '';
+    const isRiver = waterType === 'river' || waterType === 'stream'
+                 || waterType === 'canal' || waterType === 'drain';
+    if (isRiver) return { landUse: 'forest', floodRisk: 'medium', isProtected: true };
+    return { landUse: 'water', floodRisk: 'low', isProtected: false };
+  }
+  const waterway = tags['waterway'];
+  if (waterway === 'riverbank')                      return { landUse: 'forest',     floodRisk: 'medium', isProtected: true  };
   if (nat === 'wetland')                             return { landUse: 'idle_agri',  floodRisk: 'high',   isProtected: false };
   if (nat === 'scrub')                               return { landUse: 'idle_agri',  floodRisk: 'low',    isProtected: false };
   if (nat === 'grassland')                           return { landUse: 'idle_agri',  floodRisk: 'low',    isProtected: false };
@@ -103,6 +112,7 @@ const OVERPASS_QUERY = `[out:json][timeout:120][bbox:3.7,99.5,7.1,102.1];
   way["crop"~"^(rice|paddy)$"];
   way["natural"~"^(wood|scrub|grassland|water|wetland)$"];
   way["wetland"="mangrove"];
+  way["waterway"="riverbank"];
   relation["type"="multipolygon"]["landuse"~"^(paddy|rubber|oil_palm|farmland|orchard|forest)$"];
   relation["type"="multipolygon"]["landuse"="rice_field"];
   relation["type"="multipolygon"]["crop"~"^(rice|paddy)$"];

@@ -77,10 +77,11 @@ function iplanToLandUse(attrs) {
   if (g1 === 'Tanah Kosong')      return 'idle_agri';
   if (g1 === 'Tanah Pembangunan') return 'urban';
   if (g1 === 'Badan Air') {
-    const notFpv = g2.includes('sungai') || g3.includes('sungai')
-                || g2.includes('laut')   || g3.includes('laut')
-                || g2.includes('selat')  || g3.includes('selat');
-    if (notFpv) return null;
+    const isRiver = g2.includes('sungai') || g3.includes('sungai')
+                 || g2.includes('laut')   || g3.includes('laut')
+                 || g2.includes('selat')  || g3.includes('selat');
+    if (isRiver) return 'forest'; // rivers/sea — no solar; same treatment as protected land
+    // Still water bodies (tasik, kolam, empangan, takungan) → FPV viable at 30%
     return 'water';
   }
   if (g1 === 'Industri')       return 'industrial';
