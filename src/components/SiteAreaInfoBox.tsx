@@ -19,6 +19,7 @@ const LAND_USE_LABELS: Record<string, string> = {
   urban:      'Urban / Residential',
   water:      'Water (FPV)',
   forest:     'Forest',
+  river:      'River',
   unknown:    'Unknown',
 };
 

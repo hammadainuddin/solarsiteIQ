@@ -20,6 +20,7 @@ import { ensureWorldcoverLoaded } from '../utils/worldcover';
 import { ensureOsmLanduseLoaded } from '../utils/osmLanduse';
 import { ensureIplanLanduseLoaded } from '../utils/iplanLanduse';
 import { ensureRoadDistGrid } from '../utils/roadDistGrid';
+import { ensureRiverGridLoaded } from '../utils/riverGrid';
 import SiteAreaTool from '../components/SiteAreaTool';
 import type { TransmissionLine } from '../data/transmissionLines';
 import type { SubstationFeature } from '../data/infraLayers';
@@ -356,6 +357,11 @@ export default function SolarMapView() {
         // Step 4b: Load road distance grid (IDB-cached, pre-computed per 1km cell)
         setPrecomputePhase('Loading road access data…');
         await ensureRoadDistGrid();
+        if (cancelled) return;
+
+        // Step 4b2: Load river polygon coverage grid (IDB-cached, ground-truth OSM geometry)
+        setPrecomputePhase('Loading river geometry…');
+        await ensureRiverGridLoaded();
         if (cancelled) return;
 
         // Step 4c: Fetch transmission lines + substations from IDB (instant on warm cache).

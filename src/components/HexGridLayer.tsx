@@ -294,7 +294,7 @@ function DetailRectangles({
                 <strong style={{ display: 'block' }}>
                   {tile.states.join(' / ') || 'Unknown'}
                 </strong>
-                <div>Land use: <strong>{tile.attributes.landUse.replace(/_/g, ' ')}</strong></div>
+                <div>Land use: <strong>{tile.attributes.landUse.replace(/_/g, ' ')}</strong>{tile.attributes.isRiverbank && tile.attributes.landUse !== 'river' ? <span style={{ color: '#38bdf8' }}> (Riverbank)</span> : null}</div>
                 <div>Composite: <strong>{tile.scores.composite}</strong> — {scoreToVerdict(tile.scores.composite)}</div>
                 <div>Capacity: <strong>{tile.attributes.capacityKWp.toLocaleString()} kWp</strong></div>
                 <div>Annual yield: <strong>{tile.attributes.annualYieldMWh.toLocaleString()} MWh/yr</strong></div>

@@ -7,7 +7,7 @@ import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 import { overpassPost } from './overpass';
 
-const CACHE_KEY = 'northern-my-landuse-v5'; // v5: river polygons → forest; FPV lakes only
+const CACHE_KEY = 'northern-my-landuse-v6'; // v6: river polygons → dedicated 'river' class; FPV lakes only
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface LanduseRing {
@@ -59,11 +59,11 @@ function tagsToAttrs(tags: OsmTags): LanduseAttrs | null {
     const waterType = tags['water'] ?? '';
     const isRiver = waterType === 'river' || waterType === 'stream'
                  || waterType === 'canal' || waterType === 'drain';
-    if (isRiver) return { landUse: 'forest', floodRisk: 'medium', isProtected: true };
+    if (isRiver) return { landUse: 'river', floodRisk: 'medium', isProtected: true };
     return { landUse: 'water', floodRisk: 'low', isProtected: false };
   }
   const waterway = tags['waterway'];
-  if (waterway === 'riverbank')                      return { landUse: 'forest',     floodRisk: 'medium', isProtected: true  };
+  if (waterway === 'riverbank')                      return { landUse: 'river',      floodRisk: 'medium', isProtected: true  };
   if (nat === 'wetland')                             return { landUse: 'idle_agri',  floodRisk: 'high',   isProtected: false };
   if (nat === 'scrub')                               return { landUse: 'idle_agri',  floodRisk: 'low',    isProtected: false };
   if (nat === 'grassland')                           return { landUse: 'idle_agri',  floodRisk: 'low',    isProtected: false };

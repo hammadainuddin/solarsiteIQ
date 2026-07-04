@@ -29,6 +29,7 @@ export const USABLE_FRACTION: Partial<Record<string, number>> = {
   commercial: 0.40,  // ~25% rooftop + ~15% carpark of gross area
   urban:      0.15,  // residential: smaller pitched roofs
   forest:     0.00,
+  river:      0.00,  // flowing water — not developable
 };
 
 export interface PvgisResult {
@@ -153,7 +154,7 @@ export function calcCapacity(
   isProtected: boolean,
   pvgisEy: number,
 ): { capacityKWp: number; annualYieldMWh: number } {
-  if (isProtected || landUse === 'forest') return { capacityKWp: 0, annualYieldMWh: 0 };
+  if (isProtected || landUse === 'forest' || landUse === 'river') return { capacityKWp: 0, annualYieldMWh: 0 };
   const fraction = USABLE_FRACTION[landUse] ?? 0.30;
   const capacityKWp    = Math.round(SOLAR_DENSITY_KWP_PER_KM2 * fraction);
   const annualYieldMWh = Math.round(capacityKWp * pvgisEy / 1000);

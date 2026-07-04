@@ -536,7 +536,8 @@ export type LandUseClass =
   | 'commercial'
   | 'urban'
   | 'forest'
-  | 'water'
+  | 'water'   // still water body — lake/reservoir/pond, FPV-eligible
+  | 'river'   // flowing river/sea — not FPV-eligible, zero capacity
   | 'unknown';
 
 export type NorthernMyState = 'Perak' | 'Kedah' | 'Penang' | 'Perlis';
@@ -577,6 +578,8 @@ export interface HexTile {
     annualYieldMWh: number;
     /** Raw ESA WorldCover 2021 class code (10=forest, 40=cropland, 50=built-up, 80=water, etc.). */
     worldcoverClass: number;
+    /** True if a major river (OSM waterway=river) crosses this 1 km cell. Overlay flag — independent of landUse. */
+    isRiverbank: boolean;
   };
 }
 

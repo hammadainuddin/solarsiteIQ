@@ -5,12 +5,12 @@
 // O(1) lookup — no ring traversal needed.
 //
 // File: public/data/iplan-grid.json  {version:2, grid:{[key:string]:string}}
-// Cache: IndexedDB (key "iplan-grid-v2", 30-day TTL)
+// Cache: IndexedDB (key "iplan-grid-v3", 30-day TTL)
 
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-const CACHE_KEY    = 'iplan-grid-v2'; // v2 = 3-point sampling + corrected PT kod mapping
+const CACHE_KEY    = 'iplan-grid-v3'; // v3 = Tanah Kosong urban split + dedicated 'river' class
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {
@@ -20,10 +20,11 @@ interface GridFile {
 
 let _grid: Record<string, string> | null = null;
 
-// paddy is the only class with elevated flood risk in Malaysia
-const FLOOD_RISK_HIGH: ReadonlySet<string> = new Set(['paddy']);
+// paddy and river cells have elevated flood risk in Malaysia
+const FLOOD_RISK_HIGH: ReadonlySet<string> = new Set(['paddy', 'river']);
 // forest from iPlan is always protected reserve forest (plantation/community wood = 'idle_agri')
-const PROTECTED_CLASSES: ReadonlySet<string> = new Set(['forest']);
+// river is never developable — same treatment as protected land for capacity purposes
+const PROTECTED_CLASSES: ReadonlySet<string> = new Set(['forest', 'river']);
 
 // ── Loading ───────────────────────────────────────────────────────────────────
 

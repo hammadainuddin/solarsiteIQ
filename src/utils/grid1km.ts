@@ -21,6 +21,7 @@ import { interpolatePvgis, calcCapacity } from './pvgis';
 import { getOsmLanduseAt } from './osmLanduse';
 import { getIplanLanduseAt } from './iplanLanduse';
 import { getRoadDistAt } from './roadDistGrid';
+import { getRiverCoverage, DOMINANT_RIVER_THRESHOLD } from './riverGrid';
 
 // ── Grid constants ────────────────────────────────────────────────────────────
 export const GRID_STEP  = 0.009; // degrees ≈ 1.0 km at Malaysia's latitude
@@ -298,7 +299,18 @@ function buildCell(
   const cLat = +(swLat + GRID_STEP / 2).toFixed(4);
   const cLng = +(swLng + GRID_STEP / 2).toFixed(4);
 
-  const { landUse, floodRisk, isProtected, wcClass } = getLandUseForCell(cLat, cLng);
+  let { landUse, floodRisk, isProtected, wcClass } = getLandUseForCell(cLat, cLng);
+
+  // River polygon overlay (ground-truth OSM geometry) — corrects iPlan/OSM/WorldCover
+  // point-sampling errors where a cell fully covered by river gets labelled by
+  // whatever adjacent land parcel the sample point happened to hit.
+  const riverCoverage = getRiverCoverage(cLat, cLng);
+  const isRiverbank   = riverCoverage > 0;
+  if (riverCoverage >= DOMINANT_RIVER_THRESHOLD) {
+    landUse = 'river';
+    isProtected = true;
+    floodRisk = 'high';
+  }
 
   const pvgis = interpolatePvgis(cLat, cLng);
   const ghi   = pvgis.hiY > 0 ? pvgis.hiY / 365 : estimateGHI(cLat, cLng);
@@ -318,7 +330,7 @@ function buildCell(
   const AVAIL_SCORES: Partial<Record<LandUseClass, number>> = {
     idle_agri: 90, rubber: 70, mixed_agri: 60, oil_palm: 50,
     paddy: 25, water: 40, industrial: 65, commercial: 55,
-    urban: 5, forest: 0,
+    urban: 5, forest: 0, river: 0,
   };
   const availability = isProtected ? 0 : ((AVAIL_SCORES[landUse as LandUseClass] ?? 50));
 
@@ -343,6 +355,7 @@ function buildCell(
       pvgisEyKWhPerKWp: +pvgis.eY.toFixed(0),
       annualYieldMWh,
       worldcoverClass: wcClass,
+      isRiverbank,
     },
   };
 }

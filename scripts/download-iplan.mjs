@@ -74,13 +74,23 @@ function iplanToLandUse(attrs) {
     if (g2.includes('penternakan') || g2.includes('ternakan') || g3.includes('penternakan') || g3.includes('ternakan')) return 'mixed_agri';
     return 'mixed_agri';
   }
-  if (g1 === 'Tanah Kosong')      return 'idle_agri';
+  if (g1 === 'Tanah Kosong') {
+    // g1='Tanah Kosong' (vacant land) is NOT uniformly rural/idle — its gunatanah2
+    // sub-category distinguishes urban vacant lots (earmarked for development,
+    // squatter settlements, contaminated/brownfield sites) from genuinely idle rural land.
+    if (g2.includes('pembangunan'))   return 'urban'; // vacant lot earmarked/under active development
+    if (g2.includes('setinggan'))     return 'urban'; // squatter settlement — informal urban housing
+    if (g3.includes('tapak projek'))  return 'urban'; // site under construction / abandoned project
+    if (g3.includes('brownfield') || g3.includes('tercemar')) return 'urban'; // former industrial / contaminated site
+    if (g3.includes('pelupusan'))     return 'urban'; // landfill / waste disposal site
+    return 'idle_agri'; // Tanah Tidak Diusahakan, Semula Jadi, Tanah Lapang — genuinely idle/undeveloped
+  }
   if (g1 === 'Tanah Pembangunan') return 'urban';
   if (g1 === 'Badan Air') {
     const isRiver = g2.includes('sungai') || g3.includes('sungai')
                  || g2.includes('laut')   || g3.includes('laut')
                  || g2.includes('selat')  || g3.includes('selat');
-    if (isRiver) return 'forest'; // rivers/sea — no solar; same treatment as protected land
+    if (isRiver) return 'river'; // rivers/sea — no solar, distinct from lakes/reservoirs
     // Still water bodies (tasik, kolam, empangan, takungan) → FPV viable at 30%
     return 'water';
   }
@@ -107,7 +117,7 @@ function iplanToLandUse(attrs) {
 
 const LU_PRIORITY = {
   industrial: 9, commercial: 8, urban: 7,
-  paddy: 6, oil_palm: 5, rubber: 4, mixed_agri: 3, idle_agri: 2, water: 1, forest: 0,
+  paddy: 6, oil_palm: 5, rubber: 4, mixed_agri: 3, idle_agri: 2, water: 1, forest: 0, river: 0,
 };
 
 function resolveResults(results) {

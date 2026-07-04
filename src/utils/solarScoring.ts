@@ -41,6 +41,7 @@ const LAND_USE_SCORES: Record<LandUseClass, number> = {
   water:      45, // FPV viable but extra permitting
   urban:      10,
   forest:      0, // protected / not viable
+  river:       0, // flowing water — not developable
   unknown:    50,
 };
 
@@ -76,6 +77,7 @@ export function scoreEnvSocial(isProtected: boolean, landUse: LandUseClass, floo
   if (isProtected) return 0;
   let score = 80;
   if (landUse === 'forest')  score = 0;
+  if (landUse === 'river')   score = 0;
   if (landUse === 'water')   score -= 15;
   if (landUse === 'paddy')   score -= 20; // community / food-security sensitivity
   if (floodRisk === 'high')    score -= 10;
