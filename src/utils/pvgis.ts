@@ -28,6 +28,7 @@ export const USABLE_FRACTION: Partial<Record<string, number>> = {
   industrial: 0.50,  // ~30% rooftop + ~20% carpark of gross area
   commercial: 0.40,  // ~25% rooftop + ~15% carpark of gross area
   urban:      0.15,  // residential: smaller pitched roofs
+  infrastructure: 0.10, // occupied utility facility — limited spare land/carport potential
   forest:     0.00,
   river:      0.00,  // flowing water — not developable
 };

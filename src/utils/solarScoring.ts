@@ -40,6 +40,7 @@ const LAND_USE_SCORES: Record<LandUseClass, number> = {
   paddy:      35, // food security constraint, conversion requires approval
   water:      45, // FPV viable but extra permitting
   urban:      10,
+  infrastructure: 5, // occupied utility facility footprint — very limited availability
   forest:      0, // protected / not viable
   river:       0, // flowing water — not developable
   unknown:    50,

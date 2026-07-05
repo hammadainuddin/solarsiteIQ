@@ -82,43 +82,43 @@ function ringFromGeometry(geom) {
 // member on its own (wrapping last point back to first) draws a false chord that
 // can cut across huge swathes of unrelated land. Stitch matching endpoints
 // together into full closed rings before running point-in-polygon tests.
-function keyOf(pt) {
-  return `${pt[0].toFixed(6)}_${pt[1].toFixed(6)}`;
+// Bidirectional stitching — mirrors src/utils/overpass.ts's stitchRings() so both
+// the app bundle and this standalone data-gen script assemble multipolygon rings
+// the same, correct way (extends from either end of the ring, not just the tail).
+function approxEq(a, b) {
+  return Math.abs(a[0] - b[0]) < 0.00015 && Math.abs(a[1] - b[1]) < 0.00015;
 }
 
 function assembleRingsFromArcs(arcs) {
   const rings = [];
-  const remaining = arcs.map((a) => a.slice());
+  const rem = arcs.filter((s) => s.length >= 2).map((s) => s.slice());
 
-  while (remaining.length > 0) {
-    let current = remaining.shift();
-    let closed = keyOf(current[0]) === keyOf(current[current.length - 1]);
+  while (rem.length > 0) {
+    const ring = rem.splice(0, 1)[0].slice();
+    let budget = rem.length + 1;
 
-    let progress = true;
-    while (!closed && progress) {
-      progress = false;
-      const tailKey = keyOf(current[current.length - 1]);
-      for (let i = 0; i < remaining.length; i++) {
-        const cand = remaining[i];
-        if (keyOf(cand[0]) === tailKey) {
-          current = current.concat(cand.slice(1));
-          remaining.splice(i, 1);
-          progress = true;
-          break;
-        }
-        if (keyOf(cand[cand.length - 1]) === tailKey) {
-          current = current.concat(cand.slice(0, -1).reverse());
-          remaining.splice(i, 1);
-          progress = true;
-          break;
+    while (budget-- > 0) {
+      if (ring.length > 3 && approxEq(ring[0], ring[ring.length - 1])) break;
+      let matched = false;
+      for (let i = 0; i < rem.length; i++) {
+        const seg = rem[i];
+        const sS = seg[0], sE = seg[seg.length - 1];
+        const rS = ring[0],  rE = ring[ring.length - 1];
+        if (approxEq(rE, sS)) {
+          ring.push(...seg.slice(1)); rem.splice(i, 1); matched = true; break;
+        } else if (approxEq(rE, sE)) {
+          ring.push(...[...seg].reverse().slice(1)); rem.splice(i, 1); matched = true; break;
+        } else if (approxEq(rS, sE)) {
+          ring.unshift(...seg.slice(0, -1)); rem.splice(i, 1); matched = true; break;
+        } else if (approxEq(rS, sS)) {
+          ring.unshift(...[...seg].reverse().slice(0, -1)); rem.splice(i, 1); matched = true; break;
         }
       }
-      closed = keyOf(current[0]) === keyOf(current[current.length - 1]);
+      if (!matched) break;
     }
-
     // Discard dangling (unclosed) chains — an incomplete ring is safer to skip
     // than to draw a bogus closing line across unrelated land.
-    if (closed && current.length >= 4) rings.push(current);
+    if (ring.length >= 4 && approxEq(ring[0], ring[ring.length - 1])) rings.push(ring);
   }
 
   return rings;

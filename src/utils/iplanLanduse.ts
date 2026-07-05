@@ -5,12 +5,12 @@
 // O(1) lookup — no ring traversal needed.
 //
 // File: public/data/iplan-grid.json  {version:2, grid:{[key:string]:string}}
-// Cache: IndexedDB (key "iplan-grid-v3", 30-day TTL)
+// Cache: IndexedDB (key "iplan-grid-v4", 30-day TTL)
 
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-const CACHE_KEY    = 'iplan-grid-v3'; // v3 = Tanah Kosong urban split + dedicated 'river' class
+const CACHE_KEY    = 'iplan-grid-v5'; // v5 = buffer-zone no longer vetoes water via urban-priority override
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {

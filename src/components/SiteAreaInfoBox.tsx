@@ -17,6 +17,7 @@ const LAND_USE_LABELS: Record<string, string> = {
   industrial: 'Industrial',
   commercial: 'Commercial',
   urban:      'Urban / Residential',
+  infrastructure: 'Infrastructure',
   water:      'Water (FPV)',
   forest:     'Forest',
   river:      'River',
@@ -82,9 +83,9 @@ export default function SiteAreaInfoBox({ result, onClose }: Props) {
   const goPct       = Math.round((goCells.length       / total) * 100);
 
   return (
-    <div className="absolute bottom-8 left-3 z-[2000] w-64 bg-slate-900/97 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+    <div className="absolute bottom-8 left-3 z-[2000] w-64 bg-slate-950 border border-slate-600 rounded-xl shadow-2xl ring-1 ring-black/40 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700 bg-slate-800/60">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700 bg-slate-900">
         <span className="text-white text-xs font-semibold">Site Analysis</span>
         <button
           onClick={onClose}

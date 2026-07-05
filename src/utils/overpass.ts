@@ -441,7 +441,7 @@ function approxEq(a: [number, number], b: [number, number]): boolean {
   return Math.abs(a[0] - b[0]) < 0.00015 && Math.abs(a[1] - b[1]) < 0.00015;
 }
 
-function stitchRings(segments: [number, number][][]): [number, number][][] {
+export function stitchRings(segments: [number, number][][]): [number, number][][] {
   const rings: [number, number][][] = [];
   const rem = segments.filter((s) => s.length >= 2).map((s) => s.slice() as [number, number][]);
 

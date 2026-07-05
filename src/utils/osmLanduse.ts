@@ -5,9 +5,9 @@
 
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
-import { overpassPost } from './overpass';
+import { overpassPost, stitchRings } from './overpass';
 
-const CACHE_KEY = 'northern-my-landuse-v6'; // v6: river polygons → dedicated 'river' class; FPV lakes only
+const CACHE_KEY = 'northern-my-landuse-v7'; // v7: fix multipolygon ring stitching + water relations
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface LanduseRing {
@@ -116,6 +116,7 @@ const OVERPASS_QUERY = `[out:json][timeout:120][bbox:3.7,99.5,7.1,102.1];
   relation["type"="multipolygon"]["landuse"~"^(paddy|rubber|oil_palm|farmland|orchard|forest)$"];
   relation["type"="multipolygon"]["landuse"="rice_field"];
   relation["type"="multipolygon"]["crop"~"^(rice|paddy)$"];
+  relation["type"="multipolygon"]["natural"="water"];
   node["place"~"^(city|town|village|hamlet|suburb|neighbourhood|quarter)$"];
 );
 out geom qt;`;
@@ -149,11 +150,19 @@ function parseElements(elements: (OverpassElement & { members?: OverpassRelation
       pushRing(rings, attrs, ring);
 
     } else if (el.type === 'relation' && el.members) {
-      // Multipolygon relation — take each outer member's geometry as a separate ring
-      for (const m of el.members) {
-        if (m.role !== 'outer' || !m.geometry) continue;
-        const ring = m.geometry.map((n) => [n.lat, n.lon] as [number, number]);
-        if (ring.length < 3) continue;
+      // Multipolygon "outer" boundaries are frequently split across several way
+      // members that share endpoints (common for large/irregular features like
+      // reservoirs and forest blocks) — each individual member is an OPEN arc,
+      // not a standalone ring. Naively closing each member on its own draws a
+      // false chord that can cut across huge swathes of unrelated land (this
+      // caused Tasik Timah Tasoh's reservoir relation to falsely bleed into
+      // surrounding farmland). Stitch matching endpoints into full closed rings
+      // using the same algorithm as fetchNorthernMyBoundariesFromOSM.
+      const outerArcs = el.members
+        .filter((m) => m.role === 'outer' && m.geometry && m.geometry.length >= 2)
+        .map((m) => m.geometry!.map((n) => [n.lat, n.lon] as [number, number]));
+      if (outerArcs.length === 0) continue;
+      for (const ring of stitchRings(outerArcs)) {
         pushRing(rings, attrs, ring);
       }
     }

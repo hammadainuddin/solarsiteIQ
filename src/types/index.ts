@@ -535,6 +535,7 @@ export type LandUseClass =
   | 'industrial'
   | 'commercial'
   | 'urban'
+  | 'infrastructure' // utility/infra facilities — water treatment, substations, telecom towers, drainage
   | 'forest'
   | 'water'   // still water body — lake/reservoir/pond, FPV-eligible
   | 'river'   // flowing river/sea — not FPV-eligible, zero capacity
