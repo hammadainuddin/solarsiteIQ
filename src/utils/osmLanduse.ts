@@ -7,7 +7,7 @@ import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 import { overpassPost, stitchRings } from './overpass';
 
-const CACHE_KEY = 'northern-my-landuse-v7'; // v7: fix multipolygon ring stitching + water relations
+const CACHE_KEY = 'northern-my-landuse-v8'; // v8: explicit-equality query + fixed dead endpoint (query was silently failing all 3 endpoints)
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface LanduseRing {
@@ -105,21 +105,59 @@ interface OverpassElement {
 //  - landuse=rice_field and crop=rice/paddy variants used by Malaysian OSM contributors
 //  - place=village/hamlet/town/city nodes — primary way kampungs are mapped in OSM Malaysia
 //  - timeout bumped to 120s to handle larger relation result sets
-const OVERPASS_QUERY = `[out:json][timeout:120][bbox:3.7,99.5,7.1,102.1];
+//  - explicit equality filters + per-clause bbox (not global [bbox:] + regex ~"...") —
+//    overpass-api.de returns HTTP 406 for regex tag filters in this environment; this
+//    is the same fix already applied in scripts/build-road-grid.mjs and
+//    scripts/download-river-grid.mjs. Without it every query silently fails over to
+//    slower/rate-limited mirrors, and OSM landuse data goes empty for the whole app
+//    when all three configured endpoints happen to be unavailable at once.
+const OSM_BBOX_STR = '3.7,99.5,7.1,102.1';
+const OVERPASS_QUERY = `
+[out:json][timeout:120];
 (
-  way["landuse"~"^(paddy|rubber|oil_palm|farmland|orchard|forest|industrial|residential|commercial|reservoir|quarry|cemetery|greenfield)$"];
-  way["landuse"="rice_field"];
-  way["crop"~"^(rice|paddy)$"];
-  way["natural"~"^(wood|scrub|grassland|water|wetland)$"];
-  way["wetland"="mangrove"];
-  way["waterway"="riverbank"];
-  relation["type"="multipolygon"]["landuse"~"^(paddy|rubber|oil_palm|farmland|orchard|forest)$"];
-  relation["type"="multipolygon"]["landuse"="rice_field"];
-  relation["type"="multipolygon"]["crop"~"^(rice|paddy)$"];
-  relation["type"="multipolygon"]["natural"="water"];
-  node["place"~"^(city|town|village|hamlet|suburb|neighbourhood|quarter)$"];
+  way["landuse"="paddy"](${OSM_BBOX_STR});
+  way["landuse"="rubber"](${OSM_BBOX_STR});
+  way["landuse"="oil_palm"](${OSM_BBOX_STR});
+  way["landuse"="farmland"](${OSM_BBOX_STR});
+  way["landuse"="orchard"](${OSM_BBOX_STR});
+  way["landuse"="forest"](${OSM_BBOX_STR});
+  way["landuse"="industrial"](${OSM_BBOX_STR});
+  way["landuse"="residential"](${OSM_BBOX_STR});
+  way["landuse"="commercial"](${OSM_BBOX_STR});
+  way["landuse"="reservoir"](${OSM_BBOX_STR});
+  way["landuse"="quarry"](${OSM_BBOX_STR});
+  way["landuse"="cemetery"](${OSM_BBOX_STR});
+  way["landuse"="greenfield"](${OSM_BBOX_STR});
+  way["landuse"="rice_field"](${OSM_BBOX_STR});
+  way["crop"="rice"](${OSM_BBOX_STR});
+  way["crop"="paddy"](${OSM_BBOX_STR});
+  way["natural"="wood"](${OSM_BBOX_STR});
+  way["natural"="scrub"](${OSM_BBOX_STR});
+  way["natural"="grassland"](${OSM_BBOX_STR});
+  way["natural"="water"](${OSM_BBOX_STR});
+  way["natural"="wetland"](${OSM_BBOX_STR});
+  way["wetland"="mangrove"](${OSM_BBOX_STR});
+  way["waterway"="riverbank"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["landuse"="paddy"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["landuse"="rubber"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["landuse"="oil_palm"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["landuse"="farmland"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["landuse"="orchard"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["landuse"="forest"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["landuse"="rice_field"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["crop"="rice"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["crop"="paddy"](${OSM_BBOX_STR});
+  relation["type"="multipolygon"]["natural"="water"](${OSM_BBOX_STR});
+  node["place"="city"](${OSM_BBOX_STR});
+  node["place"="town"](${OSM_BBOX_STR});
+  node["place"="village"](${OSM_BBOX_STR});
+  node["place"="hamlet"](${OSM_BBOX_STR});
+  node["place"="suburb"](${OSM_BBOX_STR});
+  node["place"="neighbourhood"](${OSM_BBOX_STR});
+  node["place"="quarter"](${OSM_BBOX_STR});
 );
-out geom qt;`;
+out geom;
+`.trim();
 
 interface OverpassRelationMember {
   type: string;

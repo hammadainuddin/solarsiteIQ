@@ -101,7 +101,14 @@ function iplanToLandUse(attrs) {
   }
   if (g1 === 'Industri')       return 'industrial';
   if (g1 === 'Komersial')      return 'commercial';
-  if (g1 === 'Perumahan')      return 'urban';
+  // Plain residential ('Perumahan') is classified separately from the other urban
+  // categories below — a single small housing cluster/isolated house sample point
+  // inside an otherwise much larger paddy/agri block shouldn't flip the whole cell's
+  // classification. See resolveResults(): 'urban_soft' needs 2 of 3 points to win,
+  // while the harder categories below (schools, government facilities, designated
+  // development land, transport, mixed-use) keep single-hit veto power since those
+  // represent deliberate, significant development rather than incidental housing.
+  if (g1 === 'Perumahan')      return 'urban_soft';
   if (g1 === 'Pengangkutan')                     return 'urban'; // bus stations, airports
   // Utility/infra facilities — water treatment, substations, telecom towers,
   // drainage, gas/petroleum supply. Distinct from 'urban' since these are
@@ -130,12 +137,16 @@ function iplanToLandUse(attrs) {
 }
 
 // ── Multi-point resolution ────────────────────────────────────────────────────
-// Urban/institutional presence in any sub-point overrides agricultural labels —
-// catches kampungs whose 1 km cell centre lands in surrounding plantation.
+// Institutional/commercial/industrial/infrastructure presence in any sub-point
+// overrides agricultural labels — catches real development (schools, factories,
+// government facilities) whose footprint is small relative to the 1 km cell.
+// Plain residential ('urban_soft') instead needs 2 of 3 points to win, so an
+// isolated small housing cluster inside a much larger paddy/agri block doesn't
+// flip the whole cell away from what it mostly actually is.
 // For agricultural classes, highest-priority result wins.
 
 const LU_PRIORITY = {
-  industrial: 9, commercial: 8, urban: 7, infrastructure: 7,
+  industrial: 9, commercial: 8, urban: 7, infrastructure: 7, urban_soft: 7,
   paddy: 6, oil_palm: 5, rubber: 4, mixed_agri: 3, idle_agri: 2, water: 1, forest: 0, river: 0,
 };
 
@@ -145,9 +156,13 @@ function resolveResults(results) {
   for (const cls of ['industrial', 'commercial', 'urban', 'infrastructure']) {
     if (valid.includes(cls)) return cls;
   }
-  return valid.reduce((best, lu) =>
-    (LU_PRIORITY[lu] ?? -1) > (LU_PRIORITY[best] ?? -1) ? lu : best
-  );
+  const softCount = valid.filter((v) => v === 'urban_soft').length;
+  if (softCount >= 2) return 'urban';
+  const rest = valid.filter((v) => v !== 'urban_soft');
+  if (rest.length > 0) {
+    return rest.reduce((best, lu) => (LU_PRIORITY[lu] ?? -1) > (LU_PRIORITY[best] ?? -1) ? lu : best);
+  }
+  return 'urban'; // the only signal across all 3 points was a single residential hit
 }
 
 function toIplanAttrs(raw) {

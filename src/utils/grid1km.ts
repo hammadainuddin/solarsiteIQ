@@ -272,6 +272,16 @@ function getLandUseForCell(
     if (isInPaddyZone(cLat, cLng) && (wcClass === 40 || wcClass === 60)) {
       return { landUse: 'paddy', floodRisk: 'medium', isProtected: false, wcClass };
     }
+    // WorldCover class 10 ("tree cover") is well documented to conflate oil palm and
+    // rubber plantation canopy with genuine forest across Southeast Asia. Real gazetted
+    // forest reserves are already caught by the solarZones.ts registry in step 1 above,
+    // so reaching class 10 here (no iPlan, no OSM, no protected-zone match) in this
+    // heavily-cultivated lowland corridor is overwhelmingly more likely to be plantation
+    // than true forest — e.g. Kerian coastal belt oil palm blocks with no iPlan/OSM
+    // coverage were showing up as 'forest' purely from this WorldCover misclassification.
+    if (wcClass === 10) {
+      return { landUse: 'oil_palm', floodRisk: 'low', isProtected: false, wcClass };
+    }
     return {
       landUse: wcToLandUse(wcClass),
       floodRisk: wcToFloodRisk(wcClass),

@@ -41,7 +41,7 @@ async function writeServerCache<T>(type: ServerCacheType, data: T): Promise<void
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.openstreetmap.ru/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter', // overpass.openstreetmap.ru is unreachable — swapped out
 ];
 
 export async function overpassPost(body: string, signal?: AbortSignal): Promise<Response> {
