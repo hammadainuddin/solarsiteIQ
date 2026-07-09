@@ -5,12 +5,12 @@
 // O(1) lookup — no ring traversal needed.
 //
 // File: public/data/iplan-grid.json  {version:2, grid:{[key:string]:string}}
-// Cache: IndexedDB (key "iplan-grid-v6", 30-day TTL)
+// Cache: IndexedDB (key "iplan-grid-v7", 30-day TTL)
 
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-const CACHE_KEY    = 'iplan-grid-v6'; // v6 = small housing clusters need majority vote, not veto, over surrounding paddy/agri
+const CACHE_KEY    = 'iplan-grid-v7'; // v7 = gazetted forest reserve/mangrove gets veto priority over narrow-strip sample dilution
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {

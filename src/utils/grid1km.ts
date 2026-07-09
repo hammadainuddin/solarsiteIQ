@@ -290,10 +290,17 @@ function getLandUseForCell(
     };
   }
 
-  // 5. Last resort — paddy zones default to paddy rather than idle_agri
-  if (isInPaddyZone(cLat, cLng)) {
-    return { landUse: 'paddy', floodRisk: 'medium', isProtected: false, wcClass: 0 };
-  }
+  // 5. Last resort — no iPlan, no OSM, and no WorldCover class at all (wcClass 0).
+  // Previously defaulted to 'paddy' for any coordinate inside the giant MADA/Kerian
+  // geographic bboxes, regardless of whether that coordinate was an actual paddy
+  // field, a town, a river, or open coastline — the same "guess from a big
+  // rectangle" pattern that caused the Kuala Gula protected-zone bug. This branch
+  // is also the ONLY thing that runs in local dev, since worldcover.ts intentionally
+  // stubs wcClass to 0 there (no Vercel API route available), so in dev mode this
+  // default applied to every single cell without iPlan/OSM data across all 4
+  // states — e.g. Sungai Petani's outskirts and the wider Kedah west coast
+  // reported as blanket 'paddy'. Default to 'idle_agri' (unknown/undetermined)
+  // instead of confidently asserting a specific crop with no actual evidence.
   return { landUse: 'idle_agri', floodRisk: 'low', isProtected: false, wcClass: 0 };
 }
 

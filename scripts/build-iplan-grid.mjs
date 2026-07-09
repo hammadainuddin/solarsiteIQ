@@ -64,6 +64,19 @@ function iplanToLandUse(attrs) {
 
   if (g1 === 'Hutan') {
     if (kod.startsWith('HT402')) return 'idle_agri';
+    // Officially gazetted reserve/protection forest and mangrove (Hutan Simpan
+    // Kekal, Hutan Tanah Kerajaan, Hutan Perlindungan, Hutan Paya Laut) is a
+    // strong, legally significant signal — classified separately from generic
+    // "Kawasan Berhutan" (informal forested area) so it can get veto priority
+    // in resolveResults(). River-mouth mangrove reserves in particular form
+    // narrow strips that are often smaller than the 3-point sample spread, so
+    // without veto power a single sample point landing just outside the strip
+    // (on adjacent cleared/agricultural land) would flip the whole cell away
+    // from forest — this is what was happening along Sungai Merbok.
+    if (g2.includes('simpan kekal') || g2.includes('tanah kerajaan')
+     || g3.includes('perlindungan') || g3.includes('paya laut')) {
+      return 'forest_reserve';
+    }
     return 'forest';
   }
   if (g1 === 'Pertanian') {
@@ -110,6 +123,14 @@ function iplanToLandUse(attrs) {
   // represent deliberate, significant development rather than incidental housing.
   if (g1 === 'Perumahan')      return 'urban_soft';
   if (g1 === 'Pengangkutan')                     return 'urban'; // bus stations, airports
+  // Transmission line / pylon corridors ("Laluan Rentis") are narrow linear
+  // easements routed over whatever land use already exists beneath them — they
+  // don't occupy real footprint the way a substation or treatment plant does.
+  // Without this exception a single sample point landing on a pylon route
+  // crossing a forest reserve or paddy field would wrongly veto the cell to
+  // 'infrastructure' (observed: a 500kV corridor through Sungai Merbok mangrove
+  // reserve was outvoting 2 genuine forest hits at the same cell).
+  if (g3.includes('laluan rentis')) return null;
   // Utility/infra facilities — water treatment, substations, telecom towers,
   // drainage, gas/petroleum supply. Distinct from 'urban' since these are
   // occupied single-purpose facility footprints, not generic developable land.
@@ -146,7 +167,7 @@ function iplanToLandUse(attrs) {
 // For agricultural classes, highest-priority result wins.
 
 const LU_PRIORITY = {
-  industrial: 9, commercial: 8, urban: 7, infrastructure: 7, urban_soft: 7,
+  industrial: 9, commercial: 8, urban: 7, infrastructure: 7, urban_soft: 7, forest_reserve: 7,
   paddy: 6, oil_palm: 5, rubber: 4, mixed_agri: 3, idle_agri: 2, water: 1, forest: 0, river: 0,
 };
 
@@ -156,9 +177,12 @@ function resolveResults(results) {
   for (const cls of ['industrial', 'commercial', 'urban', 'infrastructure']) {
     if (valid.includes(cls)) return cls;
   }
+  // Gazetted forest reserve/mangrove — single-hit veto, same tier as hard urban
+  // signals (see the 'forest_reserve' comment in iplanToLandUse above).
+  if (valid.includes('forest_reserve')) return 'forest';
   const softCount = valid.filter((v) => v === 'urban_soft').length;
   if (softCount >= 2) return 'urban';
-  const rest = valid.filter((v) => v !== 'urban_soft');
+  const rest = valid.filter((v) => v !== 'urban_soft' && v !== 'forest_reserve');
   if (rest.length > 0) {
     return rest.reduce((best, lu) => (LU_PRIORITY[lu] ?? -1) > (LU_PRIORITY[best] ?? -1) ? lu : best);
   }
