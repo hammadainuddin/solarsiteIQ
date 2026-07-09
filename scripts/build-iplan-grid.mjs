@@ -194,6 +194,72 @@ function toIplanAttrs(raw) {
   return { gunatanah1: raw.g1, gunatanah2: raw.g2, gunatanah3: raw.g3, kod_gtn: raw.kod };
 }
 
+// ── Spatial gap-fill ──────────────────────────────────────────────────────────
+// iPlan's own cadastral coverage has real gaps — remote/hilly Permanent Reserved
+// Forest land in particular is often thin or entirely absent from the parcel
+// system (cadastral records mostly track developable/owned land, not
+// unmodified forest reserve). Previously, a cell with zero iPlan/OSM/WorldCover
+// signal fell through to a blind 'idle_agri' default — which is badly wrong for
+// visibly forested mountain terrain (e.g. the Baling/Kupang hill country toward
+// the Thai border): those cells then scored very high (idle_agri = 95 land
+// score) and painted large swathes of real forest bright green on the
+// suitability heatmap.
+//
+// Land use is spatially contiguous — a forest block is large and unbroken, not
+// scattered at random — so instead of guessing blindly (or drawing another
+// hand-picked rectangle, which has already gone wrong twice this session), fill
+// gaps from the SAME government dataset's own nearby cells. A cell with no
+// direct sample data inherits the majority classification of its iPlan-covered
+// neighbours within a bounded radius, only when that neighbourhood has a real
+// majority — otherwise it's left unfilled and falls through to OSM/WorldCover
+// as before.
+
+const GAP_FILL_MAX_RADIUS = 6;   // cells (~6 km) — how far to search for neighbours
+const GAP_FILL_MIN_NEIGHBOURS = 4; // minimum filled neighbours required to trust the fill
+const GAP_FILL_MIN_MAJORITY = 0.6; // required fraction agreement among found neighbours
+
+function gapFillGrid(cellGrid, W, H) {
+  // Two-phase: compute all fills from the ORIGINAL classified-cell snapshot first,
+  // then apply them together. Prevents order-dependent chaining where an earlier
+  // gap-filled (i.e. inferred, not directly classified) cell would otherwise get
+  // treated as real evidence for a later neighbour — every fill is grounded only
+  // in cells iPlan itself actually classified.
+  const fills = []; // [row, col, landUse][]
+
+  for (let row = 0; row < H; row++) {
+    for (let col = 0; col < W; col++) {
+      if (cellGrid[row][col] !== null) continue; // already classified, or outside any state (undefined)
+
+      for (let radius = 2; radius <= GAP_FILL_MAX_RADIUS; radius++) {
+        const counts = {};
+        let total = 0;
+        for (let dy = -radius; dy <= radius; dy++) {
+          const ny = row + dy;
+          if (ny < 0 || ny >= H) continue;
+          for (let dx = -radius; dx <= radius; dx++) {
+            const nx = col + dx;
+            if (nx < 0 || nx >= W) continue;
+            const val = cellGrid[ny]?.[nx];
+            if (typeof val !== 'string') continue; // skip null/undefined/self
+            counts[val] = (counts[val] ?? 0) + 1;
+            total++;
+          }
+        }
+        if (total < GAP_FILL_MIN_NEIGHBOURS) continue; // not enough context yet, expand radius
+
+        const [bestLu, bestCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        if (bestCount / total >= GAP_FILL_MIN_MAJORITY) {
+          fills.push([row, col, bestLu]);
+        }
+        break; // stop expanding once we have enough neighbours either way (filled or not)
+      }
+    }
+  }
+
+  for (const [row, col, lu] of fills) cellGrid[row][col] = lu;
+  return fills.length;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 function main() {
@@ -210,12 +276,26 @@ function main() {
   const grid = {};
   let cellCount = 0, hits = 0, missingRawData = 0;
 
+  // 2D array for O(1) neighbour lookups during gap-fill, built by pushing rows/cols
+  // as the loop runs (rather than pre-sizing from a separately-computed W/H) so it
+  // can never drift out of sync with the loop's actual iteration count.
+  // undefined = outside any state (not a candidate cell), null = in-state but
+  // unclassified, string = classified.
+  const cellGrid = [];
+  const cellKeyOf = [];
+
   for (let la = GRID_BBOX.south; la < GRID_BBOX.north; la = +(la + GRID_STEP).toFixed(3)) {
+    const gridRow = [];
+    const keyRow = [];
+    cellGrid.push(gridRow);
+    cellKeyOf.push(keyRow);
     for (let lo = GRID_BBOX.west; lo < GRID_BBOX.east; lo = +(lo + GRID_STEP).toFixed(3)) {
       const cLat = +(la + GRID_STEP / 2).toFixed(4);
       const cLng = +(lo + GRID_STEP / 2).toFixed(4);
-      if (!isInAnyState(cLat, cLng)) continue;
+      if (!isInAnyState(cLat, cLng)) { gridRow.push(undefined); keyRow.push(null); continue; }
       cellCount++;
+      const cellKey = `${cLat.toFixed(4)}_${cLng.toFixed(4)}`;
+      keyRow.push(cellKey);
 
       const samplePts = [
         [cLat, cLng],
@@ -233,8 +313,19 @@ function main() {
 
       const lu = resolveResults(results);
       if (lu) {
-        grid[`${cLat.toFixed(4)}_${cLng.toFixed(4)}`] = lu;
+        grid[cellKey] = lu;
         hits++;
+      }
+      gridRow.push(lu ?? null); // null = in-state, candidate for gap-fill
+    }
+  }
+
+  const filledCount = gapFillGrid(cellGrid, cellGrid[0].length, cellGrid.length);
+  for (let row = 0; row < cellGrid.length; row++) {
+    for (let col = 0; col < cellGrid[row].length; col++) {
+      const val = cellGrid[row][col];
+      if (typeof val === 'string' && cellKeyOf[row][col] && !(cellKeyOf[row][col] in grid)) {
+        grid[cellKeyOf[row][col]] = val;
       }
     }
   }
@@ -244,7 +335,7 @@ function main() {
   writeFileSync(OUT_FILE, payload, 'utf8');
 
   const sizeMb = (payload.length / 1_048_576).toFixed(2);
-  console.log(`✓  ${hits}/${cellCount} cells classified (${sizeMb} MB)`);
+  console.log(`✓  ${hits}/${cellCount} cells classified directly, ${filledCount} more filled from spatial context (${sizeMb} MB)`);
   if (missingRawData > 0) {
     console.log(`   ${missingRawData} cells have incomplete raw sample data — run fetch-iplan-raw.mjs to fill gaps`);
   }

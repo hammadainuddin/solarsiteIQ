@@ -5,12 +5,12 @@
 // O(1) lookup — no ring traversal needed.
 //
 // File: public/data/iplan-grid.json  {version:2, grid:{[key:string]:string}}
-// Cache: IndexedDB (key "iplan-grid-v7", 30-day TTL)
+// Cache: IndexedDB (key "iplan-grid-v8", 30-day TTL)
 
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-const CACHE_KEY    = 'iplan-grid-v7'; // v7 = gazetted forest reserve/mangrove gets veto priority over narrow-strip sample dilution
+const CACHE_KEY    = 'iplan-grid-v8'; // v8 = spatial gap-fill for cells with no direct iPlan coverage (was defaulting forested hill country to idle_agri)
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {
