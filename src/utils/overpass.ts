@@ -39,9 +39,12 @@ async function writeServerCache<T>(type: ServerCacheType, data: T): Promise<void
 // ─── Overpass endpoints (tried in order on each request) ─────────────────────
 
 const OVERPASS_ENDPOINTS = [
+  // Ordered by observed reliability during development — mail.ru first since
+  // overpass-api.de and kumi.systems have both been intermittently failing
+  // (406/429/timeouts) while mail.ru has been consistently available.
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter', // overpass.openstreetmap.ru is unreachable — swapped out
 ];
 
 export async function overpassPost(body: string, signal?: AbortSignal): Promise<Response> {

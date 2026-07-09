@@ -43,9 +43,17 @@ export const LAND_ZONES: LandZone[] = [
   // ═══════════════════════════════════════════════════════════════════════════
   {
     id: 'perak-kuala-gula-mangrove',
-    label: 'Kuala Gula Mangrove & Bird Sanctuary (Ramsar, N Perak coast)',
+    label: 'Hutan Paya Laut mangrove patch (N Perak coast, near Bagan Serai)',
     landUse: 'forest', floodRisk: 'medium', isProtected: true,
-    bounds: { south: 4.85, north: 5.12, west: 100.38, east: 100.53 },
+    // Original bounds (4.85-5.12N x 100.38-100.53E) were a guess that matched NO
+    // real mangrove — verified against iPlan's own "Hutan Paya Laut" tagging in
+    // scripts/cache/iplan-raw.json, the actual mangrove cells cluster at
+    // 5.16-5.21N x 100.42-100.45E, well north of and outside the old bbox. The old
+    // bbox instead covered the inhabited Kerian rice bowl (Kuala Kurau, Tanjung
+    // Piandang, Titi Serong, Simpang Lima, Sungai Bakau), forcing ~510 km² of real
+    // paddy/oil-palm/towns to show as protected forest — this zone check runs
+    // before iPlan, OSM, or WorldCover, so nothing downstream could override it.
+    bounds: { south: 5.14, north: 5.23, west: 100.40, east: 100.47 },
   },
   {
     id: 'perak-coastal-mangrove-mid',
