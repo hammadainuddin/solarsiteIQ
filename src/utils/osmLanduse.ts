@@ -7,7 +7,7 @@ import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 import { overpassPost, stitchRings } from './overpass';
 
-const CACHE_KEY = 'northern-my-landuse-v8'; // v8: explicit-equality query + fixed dead endpoint (query was silently failing all 3 endpoints)
+const CACHE_KEY = 'northern-my-landuse-v9'; // v9: fixed place-node dead code (was always discarded by tagsToAttrs null-check) + sized radius by place type
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface LanduseRing {
@@ -170,16 +170,27 @@ function parseElements(elements: (OverpassElement & { members?: OverpassRelation
 
   for (const el of elements) {
     if (!el.tags) continue;
-    const attrs = tagsToAttrs(el.tags);
-    if (!attrs) continue;
 
-    if (el.type === 'node' && typeof el.lat === 'number' && typeof el.lon === 'number') {
-      // Place node (village/hamlet/town/city) — create a circle ring around the point
-      // so pointInRing() correctly catches the 1 km cell centre containing this node.
+    // Place node (village/hamlet/town/city/...) — handled BEFORE the
+    // tagsToAttrs()/landuse-tag check below, since a place node only carries
+    // place=/name= tags with no landuse/natural/crop tag at all. tagsToAttrs()
+    // would return null for it and the old code's `if (!attrs) continue` was
+    // silently discarding every place node before ever reaching the node
+    // handling — meaning towns were never actually being flagged as urban via
+    // this path. Real settlements vary hugely in extent, so size the circle
+    // by place type rather than using one fixed small radius for everything —
+    // a city/town needs to cover several km of built-up area (OSM's explicit
+    // landuse=residential/commercial polygon coverage is frequently incomplete
+    // even for large towns), while a hamlet is genuinely tiny.
+    if (el.type === 'node' && typeof el.lat === 'number' && typeof el.lon === 'number' && el.tags['place']) {
+      const radius = PLACE_RING_RADIUS[el.tags['place']] ?? PLACE_RING_RADIUS.village;
       pushRing(rings, { landUse: 'urban', floodRisk: 'low', isProtected: false },
-        createCircleRing(el.lat, el.lon));
+        createCircleRing(el.lat, el.lon, radius));
       continue;
     }
+
+    const attrs = tagsToAttrs(el.tags);
+    if (!attrs) continue;
 
     if (el.type === 'way' && el.geometry) {
       // Standard closed way
@@ -209,11 +220,23 @@ function parseElements(elements: (OverpassElement & { members?: OverpassRelation
   return rings;
 }
 
-// Radius just large enough to guarantee the 1 km cell centre is inside
-// when the place node is anywhere within that cell (max offset = 0.0045°√2 ≈ 0.00636°).
-const PLACE_RING_RADIUS = 0.007; // ~780 m — marks only the containing 1 km cell as urban
+// Circle radius by OSM place= type — real settlements vary hugely in extent.
+// A single node marks the settlement's notional "centre"; a city/town's actual
+// built-up area can span several km, well beyond OSM's often-incomplete
+// landuse=residential/commercial polygon coverage, so the fallback circle needs
+// to be large enough to catch most of it. Small radius (~780 m, one grid cell)
+// is kept for genuinely small settlements to avoid bleeding into surrounding farmland.
+const PLACE_RING_RADIUS: Record<string, number> = {
+  city:          0.030, // ~3.3 km — major cities (Alor Setar, Ipoh, Sungai Petani)
+  town:          0.022, // ~2.4 km — significant towns
+  suburb:        0.014, // ~1.6 km — sub-areas within larger urban agglomerations
+  neighbourhood: 0.010, // ~1.1 km
+  quarter:       0.010,
+  village:       0.007, // ~780 m — marks roughly one grid cell as urban
+  hamlet:        0.007,
+};
 
-function createCircleRing(lat: number, lng: number, radius = PLACE_RING_RADIUS): [number, number][] {
+function createCircleRing(lat: number, lng: number, radius: number): [number, number][] {
   const pts: [number, number][] = [];
   const N = 8;
   for (let i = 0; i < N; i++) {
