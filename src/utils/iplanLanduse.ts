@@ -21,7 +21,7 @@
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-const CACHE_KEY    = 'iplan-grid-v11'; // v11 = smaller-radius iterative gap-fill + forest-conservative bias for ambiguous transition zones
+const CACHE_KEY    = 'iplan-grid-v12'; // v12 = fixed state-service routing bug (overlapping bboxes were misrouting border-area queries to the wrong state's cadastral service)
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {

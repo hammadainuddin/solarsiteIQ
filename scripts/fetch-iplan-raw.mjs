@@ -42,13 +42,20 @@ const STATE_SERVICES = [
   { key: 'perak',  service: 'GTsemasa_08', s: 3.68, n: 5.65, w: 100.18, e: 102.05 },
 ];
 
-function getServiceUrl(lat, lng) {
-  for (const st of STATE_SERVICES) {
-    if (lat >= st.s && lat <= st.n && lng >= st.w && lng <= st.e) {
-      return `${IPLAN_BASE}/${st.service}/MapServer`;
-    }
-  }
-  return null;
+// The 4 bboxes above pairwise OVERLAP (Perlis x Kedah, Penang x Kedah,
+// Penang x Perak, Kedah x Perak all overlap — real Malaysian state boundaries
+// follow rivers/ridges, not rectangles). Picking just the first bbox match
+// silently misrouted border-area queries to the wrong state's cadastral
+// service — confirmed for Pengkalan Hulu/Gerik (real Perak territory, per
+// Nominatim) landing in the Kedah/Perak overlap band and being routed to
+// Kedah's service, which correctly has no data there and returns null,
+// masking Perak's real data (verified: Perak's service returns actual
+// Hutan Simpan Kekal / Getah records for the same coordinates). Now returns
+// ALL matching services so the caller can try each and keep the first hit.
+function getServiceUrls(lat, lng) {
+  return STATE_SERVICES
+    .filter((st) => lat >= st.s && lat <= st.n && lng >= st.w && lng <= st.e)
+    .map((st) => `${IPLAN_BASE}/${st.service}/MapServer`);
 }
 
 function pointKey(lat, lng) {
@@ -57,7 +64,7 @@ function pointKey(lat, lng) {
 
 // ── Raw point query — no classification, just the 4 attribute fields ─────────
 
-async function queryPointRaw(serviceUrl, lat, lng) {
+async function queryOneService(serviceUrl, lat, lng) {
   const params = new URLSearchParams({
     f:              'json',
     geometry:       `${lng},${lat}`, // ArcGIS REST: x=lng, y=lat
@@ -75,9 +82,22 @@ async function queryPointRaw(serviceUrl, lat, lng) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   const feat = data.features?.[0];
-  if (!feat) return null; // confirmed: no iPlan parcel at this point
+  if (!feat) return null; // confirmed: no parcel in THIS service
   const a = feat.attributes ?? {};
   return { g1: a.gunatanah1 ?? '', g2: a.gunatanah2 ?? '', g3: a.gunatanah3 ?? '', kod: a.kod_gtn ?? '' };
+}
+
+// Try each candidate service in turn (only relevant in state-bbox overlap
+// zones — most points have exactly one candidate) and keep the first real hit.
+// A null from one service only means "no parcel in THAT state's system" — it
+// does NOT mean the coordinate has no data at all when another service also
+// covers it.
+async function queryPointRaw(serviceUrls, lat, lng) {
+  for (const url of serviceUrls) {
+    const result = await queryOneService(url, lat, lng);
+    if (result) return result;
+  }
+  return null; // no service covering this point returned data
 }
 
 // ── Cache I/O ──────────────────────────────────────────────────────────────────
@@ -123,11 +143,11 @@ async function main() {
     for (let lo = GRID_BBOX.west; lo < GRID_BBOX.east; lo = +(lo + GRID_STEP).toFixed(3)) {
       const cLat = +(la + GRID_STEP / 2).toFixed(4);
       const cLng = +(lo + GRID_STEP / 2).toFixed(4);
-      const svcUrl = getServiceUrl(cLat, cLng);
-      if (!svcUrl) continue;
-      jobs.push({ lat: cLat, lng: cLng, svcUrl });
-      jobs.push({ lat: +(cLat + SAMPLE_OFF).toFixed(5), lng: +(cLng + SAMPLE_OFF).toFixed(5), svcUrl });
-      jobs.push({ lat: +(cLat - SAMPLE_OFF).toFixed(5), lng: +(cLng - SAMPLE_OFF).toFixed(5), svcUrl });
+      const svcUrls = getServiceUrls(cLat, cLng);
+      if (svcUrls.length === 0) continue;
+      jobs.push({ lat: cLat, lng: cLng, svcUrls });
+      jobs.push({ lat: +(cLat + SAMPLE_OFF).toFixed(5), lng: +(cLng + SAMPLE_OFF).toFixed(5), svcUrls });
+      jobs.push({ lat: +(cLat - SAMPLE_OFF).toFixed(5), lng: +(cLng - SAMPLE_OFF).toFixed(5), svcUrls });
     }
   }
 
@@ -146,7 +166,7 @@ async function main() {
   const tasks = todo.map((j) => async () => {
     const key = pointKey(j.lat, j.lng);
     try {
-      points[key] = await queryPointRaw(j.svcUrl, j.lat, j.lng); // may be null — a valid "no parcel" result
+      points[key] = await queryPointRaw(j.svcUrls, j.lat, j.lng); // may be null — a valid "no parcel in any candidate service" result
     } catch {
       failed++; // leave unset — retried on next invocation, not cached as a false "no data"
     }
