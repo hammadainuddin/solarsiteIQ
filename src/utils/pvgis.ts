@@ -44,7 +44,7 @@ export interface PvgisResult {
 
 import { idbGet, idbSet } from './idbCache';
 
-const PVGIS_CACHE_KEY    = 'pvgis-grid-v3'; // v3 = 0.05° grid (2179 pts), regenerated 2026-06
+const PVGIS_CACHE_KEY    = 'pvgis-grid-v4'; // v4 = filled ~38% missing points (2179->3007 pts) + distance-weighted corner fallback
 const PVGIS_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — irradiance data is very stable
 
 interface PvgisPoint    { lat: number; lng: number; eY: number; hiY: number; pr: number }
@@ -132,14 +132,37 @@ export function interpolatePvgis(lat: number, lng: number): PvgisResult {
   const q01 = _pvgisGrid.get(gridKey(la0, lo1, step));
   const q11 = _pvgisGrid.get(gridKey(la1, lo1, step));
 
-  // All four corners needed for bilinear; fall back to nearest available
-  if (!q00 || !q10 || !q01 || !q11) {
-    const fallback = q00 ?? q10 ?? q01 ?? q11;
-    return fallback ?? { eY: 1_420, perfRatio: 0.86, hiY: 0 };
-  }
-
   const tx = (lng - lo0) / step;
   const ty = (lat - la0) / step;
+
+  // All four corners needed for proper bilinear. When one or more is missing
+  // (e.g. a land/sea boundary cell where PVGIS has no data for the ocean-side
+  // corner), fall back to an inverse-distance-weighted blend of whichever
+  // corners ARE present — weighted by actual distance from the query point in
+  // normalised (tx,ty) cell space, not a fixed q00-first priority order.
+  // Previously this always picked q00 (SW corner) whenever it existed, even if
+  // the query point sat right next to a different, present corner — producing
+  // a single flat value repeated across the whole 0.05° cell with a hard edge
+  // at the cell boundary, visible as small sharply-contrasting patches on the
+  // solar irradiance heatmap wherever PVGIS coverage had a gap.
+  if (!q00 || !q10 || !q01 || !q11) {
+    const corners: [PvgisResult | undefined, number, number][] = [
+      [q00, 0, 0], [q01, 1, 0], [q10, 0, 1], [q11, 1, 1],
+    ];
+    const available = corners.filter((c): c is [PvgisResult, number, number] => !!c[0]);
+    if (available.length === 0) return { eY: 1_420, perfRatio: 0.86, hiY: 0 };
+
+    let wSum = 0, eYSum = 0, prSum = 0, hiYSum = 0;
+    for (const [q, qx, qy] of available) {
+      const d2 = (tx - qx) ** 2 + (ty - qy) ** 2;
+      const w = 1 / (d2 + 0.0001); // epsilon avoids divide-by-zero at an exact corner match
+      wSum += w;
+      eYSum += q.eY * w;
+      prSum += q.perfRatio * w;
+      hiYSum += q.hiY * w;
+    }
+    return { eY: eYSum / wSum, perfRatio: prSum / wSum, hiY: hiYSum / wSum };
+  }
 
   return {
     eY:        lerp(lerp(q00.eY,        q01.eY,        tx), lerp(q10.eY,        q11.eY,        tx), ty),

@@ -1,18 +1,29 @@
 /**
- * One-time download script for PVGIS solar yield data for northern Malaysia.
+ * Download script for PVGIS solar yield data for northern Malaysia.
  *
- * Queries the EU JRC PVGIS API at 0.1° resolution (35 lat × 27 lng = 945 points).
- * Stores a compact static file served by Vite/Vercel with no runtime API dependency.
+ * Queries the EU JRC PVGIS API at 0.05° resolution (matches SARAH-3 native
+ * resolution). Stores a compact static file served by Vite/Vercel with no
+ * runtime API dependency.
+ *
+ * Resumable: loads any existing public/data/pvgis-grid.json first and only
+ * (re-)fetches points still missing — a failed request (timeout/transient
+ * error) is never cached as a fake value, so re-running always retries
+ * exactly the gaps. This matters: the original one-shot run silently skipped
+ * ~38% of points on transient failures with no retry, which meant
+ * interpolatePvgis() frequently fell back to a single nearest-available
+ * corner (picked by a fixed slot-priority order, not actual distance)
+ * instead of proper bilinear interpolation — producing small, sharply
+ * hard-edged patches on the solar irradiance heatmap wherever a 0.05° cell's
+ * corners were incomplete.
  *
  * Usage:
  *   node scripts/download-pvgis.mjs
  *
  * Requirements: Node 18+ (native fetch). No npm packages needed.
- * Estimated runtime: ~30–60 seconds at concurrency 20.
  * PVGIS rate limit: 30 req/s — concurrency 20 is comfortably within that.
  */
 
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -87,35 +98,74 @@ async function runPool(tasks, limit) {
   return results;
 }
 
+// Retry wrapper — PVGIS occasionally times out or errors transiently even for
+// valid land coordinates; a single attempt with no retry is why the original
+// download silently lost ~38% of points.
+async function fetchPointWithRetry(lat, lng, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fetchPoint(lat, lng);
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+function pointKey(lat, lng) {
+  return `${lat}_${lng}`;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const points = generateGrid();
-  console.log(`PVGIS download: ${points.length} grid points at ${STEP}° resolution\n`);
+  const allPoints = generateGrid();
 
-  const results = [];
+  // Load existing grid (if any) so already-successful points are never re-fetched.
+  const existing = new Map();
+  if (existsSync(OUT_FILE)) {
+    try {
+      const prior = JSON.parse(readFileSync(OUT_FILE, 'utf8'));
+      for (const p of prior.points ?? []) existing.set(pointKey(p.lat, p.lng), p);
+      console.log(`Loaded ${existing.size} existing points from ${OUT_FILE}\n`);
+    } catch {
+      console.log('Existing pvgis-grid.json unreadable — starting fresh\n');
+    }
+  }
+
+  const todo = allPoints.filter(([lat, lng]) => !existing.has(pointKey(lat, lng)));
+  console.log(`PVGIS: ${allPoints.length} grid points at ${STEP}° resolution — ${allPoints.length - todo.length} already cached, ${todo.length} to fetch\n`);
+
+  if (todo.length === 0) {
+    console.log('Nothing to fetch — grid is already complete.\n');
+    return;
+  }
+
   let done = 0, errors = 0;
   const startMs = Date.now();
 
-  const tasks = points.map(([lat, lng]) => async () => {
+  const tasks = todo.map(([lat, lng]) => async () => {
     try {
-      const pt = await fetchPoint(lat, lng);
-      results.push(pt);
+      const pt = await fetchPointWithRetry(lat, lng);
+      existing.set(pointKey(lat, lng), pt);
     } catch (err) {
-      errors++;
-      console.warn(`  ✗ (${lat}, ${lng}): ${err.message}`);
+      errors++; // leave unset — retried on next invocation, not cached as a false gap
+      console.warn(`\n  ✗ (${lat}, ${lng}): ${err.message}`);
     }
     done++;
-    if (done % 50 === 0 || done === points.length) {
+    if (done % 50 === 0 || done === todo.length) {
       const elapsed = ((Date.now() - startMs) / 1000).toFixed(0);
-      const pct = ((done / points.length) * 100).toFixed(1);
-      process.stdout.write(`\r  ${pct}%  ${done}/${points.length}  ${errors} errors  ${elapsed}s elapsed   `);
+      const pct = ((done / todo.length) * 100).toFixed(1);
+      process.stdout.write(`\r  ${pct}%  ${done}/${todo.length}  ${errors} errors  ${elapsed}s elapsed   `);
     }
   });
 
   await runPool(tasks, CONCURRENCY);
   console.log('\n');
 
+  const results = [...existing.values()];
   if (results.length === 0) {
     console.error('No data retrieved. Check network access to re.jrc.ec.europa.eu');
     process.exit(1);
@@ -131,7 +181,7 @@ async function main() {
   const sizekb = (payload.length / 1024).toFixed(1);
   const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
   const eYRange = [Math.min(...results.map(r=>r.eY)), Math.max(...results.map(r=>r.eY))];
-  console.log(`✓  ${results.length} points (${sizekb} KB) in ${elapsed}s → ${OUT_FILE}`);
+  console.log(`✓  ${results.length} total points (${sizekb} KB) — ${errors} failed this run (re-run to retry)`);
   console.log(`   eY range: ${eYRange[0]}–${eYRange[1]} kWh/kWp/yr`);
   console.log('   Commit public/data/pvgis-grid.json to deploy.\n');
 }
