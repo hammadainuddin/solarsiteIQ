@@ -230,10 +230,28 @@ function toIplanAttrs(raw) {
 // majority — otherwise it's left unfilled and falls through to OSM/WorldCover
 // as before.
 
-const GAP_FILL_MAX_RADIUS = 8;    // cells (~8 km) — how far to search for neighbours per round
-const GAP_FILL_MIN_NEIGHBOURS = 4; // minimum filled neighbours required to trust the fill
-const GAP_FILL_MIN_MAJORITY = 0.6; // required fraction agreement among found neighbours
-const GAP_FILL_ROUNDS = 4; // iterative rounds — see note below
+// A single large-radius jump can average together two genuinely different zones
+// (e.g. forest to the north, a real but distant agriculture pocket to the
+// south) into one misleadingly confident-looking majority. Found in practice:
+// a cell with zero real data within 7km reached a bare 62.5% 'rubber' majority
+// only by searching out to 8km in one step — of which 31% of that same
+// evidence was actually 'Hutan'. Using a SMALLER per-round radius with MORE
+// rounds forces the fill to propagate through intermediate, closer-to-real-data
+// cells first, so distant/weak evidence can no longer out-vote what's actually
+// nearby in a single jump — each step only trusts genuinely local agreement.
+const GAP_FILL_MAX_RADIUS = 4;     // cells (~4 km) — how far to search for neighbours per round
+const GAP_FILL_MIN_NEIGHBOURS = 5; // minimum filled neighbours required to trust the fill
+const GAP_FILL_MIN_MAJORITY = 0.65; // required fraction agreement among found neighbours
+const GAP_FILL_ROUNDS = 8; // more, smaller rounds — same eventual reach via gradual, grounded steps
+
+// Wrongly labelling forest as agricultural falsely suggests developable land in
+// what might be protected/inaccessible terrain — a materially worse mistake than
+// the reverse (labelling agricultural land as forest is merely over-conservative).
+// So when 'forest' has a meaningful minority presence in a cell's neighbourhood
+// evidence, require a much stronger majority before trusting a NON-forest call;
+// forest itself only ever needs the normal majority to win.
+const GAP_FILL_FOREST_MINORITY_THRESHOLD = 0.20; // forest share that triggers extra caution
+const GAP_FILL_NONFOREST_MAJORITY_WHEN_FOREST_PRESENT = 0.80;
 
 function gapFillGrid(cellGrid, W, H) {
   // Each round computes fills from a snapshot of the PREVIOUS round's state only
@@ -273,7 +291,12 @@ function gapFillGrid(cellGrid, W, H) {
           if (total < GAP_FILL_MIN_NEIGHBOURS) continue; // not enough context yet, expand radius
 
           const [bestLu, bestCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-          if (bestCount / total >= GAP_FILL_MIN_MAJORITY) {
+          const bestFrac = bestCount / total;
+          const forestFrac = (counts.forest ?? 0) / total;
+          const requiredMajority = bestLu !== 'forest' && forestFrac >= GAP_FILL_FOREST_MINORITY_THRESHOLD
+            ? GAP_FILL_NONFOREST_MAJORITY_WHEN_FOREST_PRESENT
+            : GAP_FILL_MIN_MAJORITY;
+          if (bestFrac >= requiredMajority) {
             fills.push([row, col, bestLu]);
           }
           break; // stop expanding once we have enough neighbours either way (filled or not)

@@ -21,7 +21,7 @@
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-const CACHE_KEY    = 'iplan-grid-v10'; // v10 = split gap-filled cells into a separate, lower-priority map
+const CACHE_KEY    = 'iplan-grid-v11'; // v11 = smaller-radius iterative gap-fill + forest-conservative bias for ambiguous transition zones
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {
