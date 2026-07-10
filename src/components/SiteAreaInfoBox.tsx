@@ -17,6 +17,7 @@ const LAND_USE_LABELS: Record<string, string> = {
   industrial: 'Industrial',
   commercial: 'Commercial',
   urban:      'Urban / Residential',
+  kampung:    'Kampung / Rural Village',
   infrastructure: 'Infrastructure',
   water:      'Water (FPV)',
   forest:     'Forest',

@@ -19,7 +19,7 @@ import { getZoneAt } from '../data/solarZones';
 import { getWorldcoverClass, wcToLandUse, wcToFloodRisk, wcIsProtected } from './worldcover';
 import { interpolatePvgis, calcCapacity } from './pvgis';
 import { getOsmLanduseAt } from './osmLanduse';
-import { getIplanLanduseAt } from './iplanLanduse';
+import { getIplanLanduseAt, getIplanGapFillLanduseAt } from './iplanLanduse';
 import { getRoadDistAt } from './roadDistGrid';
 import { getRiverCoverage, DOMINANT_RIVER_THRESHOLD } from './riverGrid';
 
@@ -237,10 +237,16 @@ function isInPaddyZone(lat: number, lng: number): boolean {
 // ── Determine land use for a cell ─────────────────────────────────────────────
 // Priority:
 //  1. solarZones.ts protected entries (forest reserves, Ramsar sites)
-//  2. iPlan GTsemasa  (official MY government current land use — primary)
-//  3. OSM landuse polygon (secondary — fills iPlan gaps)
-//  4. WorldCover 2021 class (tertiary fallback) + paddy zone heuristic
-//  5. Paddy zone default / idle_agri
+//  2. iPlan GTsemasa DIRECT sample data (official MY government current land use — primary)
+//  3. OSM landuse polygon / place node (secondary — fills iPlan gaps)
+//  4. iPlan GAP-FILLED (spatially inferred from nearby direct iPlan cells — see
+//     build-iplan-grid.mjs). Deliberately AFTER OSM: a gap-fill is an inference,
+//     not an observation, so it must never outrank a real OSM signal. This is
+//     what previously caused Sungai Petani's town core (no direct iPlan
+//     coverage, sits inside the vast MADA rice region) to wrongly inherit
+//     'paddy' from its surroundings instead of OSM's correct place=city 'urban'.
+//  5. WorldCover 2021 class (tertiary fallback) + paddy zone heuristic
+//  6. idle_agri default
 
 function getLandUseForCell(
   cLat: number,
@@ -252,19 +258,25 @@ function getLandUseForCell(
     return { landUse: zone.landUse, floodRisk: zone.floodRisk, isProtected: true, wcClass: 10 };
   }
 
-  // 2. iPlan (official Malaysian government land use data)
+  // 2. iPlan direct sample data (official Malaysian government land use data)
   const iplan = getIplanLanduseAt(cLat, cLng);
   if (iplan) {
     return { landUse: iplan.landUse, floodRisk: iplan.floodRisk, isProtected: iplan.isProtected, wcClass: 0 };
   }
 
-  // 3. OSM landuse polygon
+  // 3. OSM landuse polygon / place node
   const osm = getOsmLanduseAt(cLat, cLng);
   if (osm) {
     return { landUse: osm.landUse, floodRisk: osm.floodRisk, isProtected: osm.isProtected, wcClass: 0 };
   }
 
-  // 4. WorldCover 2021 fallback (with paddy zone heuristic)
+  // 4. iPlan gap-filled (spatially inferred — see comment above)
+  const iplanGapFilled = getIplanGapFillLanduseAt(cLat, cLng);
+  if (iplanGapFilled) {
+    return { landUse: iplanGapFilled.landUse, floodRisk: iplanGapFilled.floodRisk, isProtected: iplanGapFilled.isProtected, wcClass: 0 };
+  }
+
+  // 5. WorldCover 2021 fallback (with paddy zone heuristic)
   const wcClass = getWorldcoverClass(cLat, cLng);
   if (wcClass !== 0) {
     // In MADA / Kerian: WorldCover cropland (40) = paddy with high confidence.
@@ -290,7 +302,7 @@ function getLandUseForCell(
     };
   }
 
-  // 5. Last resort — no iPlan, no OSM, and no WorldCover class at all (wcClass 0).
+  // 6. Last resort — no iPlan (direct or gap-filled), no OSM, and no WorldCover class at all (wcClass 0).
   // Previously defaulted to 'paddy' for any coordinate inside the giant MADA/Kerian
   // geographic bboxes, regardless of whether that coordinate was an actual paddy
   // field, a town, a river, or open coastline — the same "guess from a big
@@ -347,7 +359,7 @@ function buildCell(
   const AVAIL_SCORES: Partial<Record<LandUseClass, number>> = {
     idle_agri: 90, rubber: 70, mixed_agri: 60, oil_palm: 50,
     paddy: 25, water: 40, industrial: 65, commercial: 55,
-    urban: 5, infrastructure: 3, forest: 0, river: 0,
+    urban: 5, kampung: 10, infrastructure: 3, forest: 0, river: 0,
   };
   const availability = isProtected ? 0 : ((AVAIL_SCORES[landUse as LandUseClass] ?? 50));
 

@@ -117,11 +117,23 @@ function iplanToLandUse(attrs) {
   // Plain residential ('Perumahan') is classified separately from the other urban
   // categories below — a single small housing cluster/isolated house sample point
   // inside an otherwise much larger paddy/agri block shouldn't flip the whole cell's
-  // classification. See resolveResults(): 'urban_soft' needs 2 of 3 points to win,
-  // while the harder categories below (schools, government facilities, designated
-  // development land, transport, mixed-use) keep single-hit veto power since those
-  // represent deliberate, significant development rather than incidental housing.
-  if (g1 === 'Perumahan')      return 'urban_soft';
+  // classification. See resolveResults(): 'urban_soft'/'kampung_soft' need 2 of 3
+  // points to win, while the harder categories below (schools, government
+  // facilities, designated development land, transport, mixed-use) keep
+  // single-hit veto power since those represent deliberate, significant
+  // development rather than incidental housing.
+  //
+  // Within 'Perumahan', a traditional kampung/village (g2='Kampung', or FELDA/
+  // estate worker housing) is a rural settlement — much lower density, more
+  // surrounding open land, very different solar-development implications than
+  // a proper suburban/urban housing subdivision. Kept as a distinct label
+  // ('kampung') rather than folded into 'urban'.
+  if (g1 === 'Perumahan') {
+    if (g2.includes('kampung') || g3.includes('petempatan') || g3.includes('perumahan ladang')) {
+      return 'kampung_soft';
+    }
+    return 'urban_soft';
+  }
   if (g1 === 'Pengangkutan')                     return 'urban'; // bus stations, airports
   // Transmission line / pylon corridors ("Laluan Rentis") are narrow linear
   // easements routed over whatever land use already exists beneath them — they
@@ -167,7 +179,7 @@ function iplanToLandUse(attrs) {
 // For agricultural classes, highest-priority result wins.
 
 const LU_PRIORITY = {
-  industrial: 9, commercial: 8, urban: 7, infrastructure: 7, urban_soft: 7, forest_reserve: 7,
+  industrial: 9, commercial: 8, urban: 7, infrastructure: 7, urban_soft: 7, forest_reserve: 7, kampung_soft: 7,
   paddy: 6, oil_palm: 5, rubber: 4, mixed_agri: 3, idle_agri: 2, water: 1, forest: 0, river: 0,
 };
 
@@ -180,13 +192,17 @@ function resolveResults(results) {
   // Gazetted forest reserve/mangrove — single-hit veto, same tier as hard urban
   // signals (see the 'forest_reserve' comment in iplanToLandUse above).
   if (valid.includes('forest_reserve')) return 'forest';
-  const softCount = valid.filter((v) => v === 'urban_soft').length;
-  if (softCount >= 2) return 'urban';
-  const rest = valid.filter((v) => v !== 'urban_soft' && v !== 'forest_reserve');
+  const urbanSoftCount = valid.filter((v) => v === 'urban_soft').length;
+  if (urbanSoftCount >= 2) return 'urban';
+  const kampungSoftCount = valid.filter((v) => v === 'kampung_soft').length;
+  if (kampungSoftCount >= 2) return 'kampung';
+  const rest = valid.filter((v) => v !== 'urban_soft' && v !== 'forest_reserve' && v !== 'kampung_soft');
   if (rest.length > 0) {
     return rest.reduce((best, lu) => (LU_PRIORITY[lu] ?? -1) > (LU_PRIORITY[best] ?? -1) ? lu : best);
   }
-  return 'urban'; // the only signal across all 3 points was a single residential hit
+  // Only signal(s) across all 3 points were a single soft-residential hit each —
+  // no majority reached either way, but still the only evidence available.
+  return valid.includes('kampung_soft') ? 'kampung' : 'urban';
 }
 
 function toIplanAttrs(raw) {
@@ -214,50 +230,62 @@ function toIplanAttrs(raw) {
 // majority — otherwise it's left unfilled and falls through to OSM/WorldCover
 // as before.
 
-const GAP_FILL_MAX_RADIUS = 6;   // cells (~6 km) — how far to search for neighbours
+const GAP_FILL_MAX_RADIUS = 8;    // cells (~8 km) — how far to search for neighbours per round
 const GAP_FILL_MIN_NEIGHBOURS = 4; // minimum filled neighbours required to trust the fill
 const GAP_FILL_MIN_MAJORITY = 0.6; // required fraction agreement among found neighbours
+const GAP_FILL_ROUNDS = 4; // iterative rounds — see note below
 
 function gapFillGrid(cellGrid, W, H) {
-  // Two-phase: compute all fills from the ORIGINAL classified-cell snapshot first,
-  // then apply them together. Prevents order-dependent chaining where an earlier
-  // gap-filled (i.e. inferred, not directly classified) cell would otherwise get
-  // treated as real evidence for a later neighbour — every fill is grounded only
-  // in cells iPlan itself actually classified.
-  const fills = []; // [row, col, landUse][]
+  // Each round computes fills from a snapshot of the PREVIOUS round's state only
+  // (never same-round neighbours), then applies them together — so within a
+  // single round, an inferred cell can never be used as evidence for another
+  // inferred cell. Running several such rounds lets a fill propagate outward
+  // step by step through very large data-sparse regions (e.g. the Belum-Temengor
+  // forest interior, where 80%+ of sample points return no iPlan data at all —
+  // far sparser than a single ~8 km-radius pass can bridge) while still requiring
+  // a real majority at every step. A round naturally stops growing once it
+  // reaches genuinely mixed/settled territory, since real classified cells
+  // (a town's own iPlan-derived urban/agri data, e.g. Gerik) are never
+  // overwritten — only cells with zero direct classification are fill targets.
+  let totalFilled = 0;
+  for (let round = 0; round < GAP_FILL_ROUNDS; round++) {
+    const fills = []; // [row, col, landUse][]
 
-  for (let row = 0; row < H; row++) {
-    for (let col = 0; col < W; col++) {
-      if (cellGrid[row][col] !== null) continue; // already classified, or outside any state (undefined)
+    for (let row = 0; row < H; row++) {
+      for (let col = 0; col < W; col++) {
+        if (cellGrid[row][col] !== null) continue; // already classified, or outside any state (undefined)
 
-      for (let radius = 2; radius <= GAP_FILL_MAX_RADIUS; radius++) {
-        const counts = {};
-        let total = 0;
-        for (let dy = -radius; dy <= radius; dy++) {
-          const ny = row + dy;
-          if (ny < 0 || ny >= H) continue;
-          for (let dx = -radius; dx <= radius; dx++) {
-            const nx = col + dx;
-            if (nx < 0 || nx >= W) continue;
-            const val = cellGrid[ny]?.[nx];
-            if (typeof val !== 'string') continue; // skip null/undefined/self
-            counts[val] = (counts[val] ?? 0) + 1;
-            total++;
+        for (let radius = 2; radius <= GAP_FILL_MAX_RADIUS; radius++) {
+          const counts = {};
+          let total = 0;
+          for (let dy = -radius; dy <= radius; dy++) {
+            const ny = row + dy;
+            if (ny < 0 || ny >= H) continue;
+            for (let dx = -radius; dx <= radius; dx++) {
+              const nx = col + dx;
+              if (nx < 0 || nx >= W) continue;
+              const val = cellGrid[ny]?.[nx];
+              if (typeof val !== 'string') continue; // skip null/undefined/self
+              counts[val] = (counts[val] ?? 0) + 1;
+              total++;
+            }
           }
-        }
-        if (total < GAP_FILL_MIN_NEIGHBOURS) continue; // not enough context yet, expand radius
+          if (total < GAP_FILL_MIN_NEIGHBOURS) continue; // not enough context yet, expand radius
 
-        const [bestLu, bestCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-        if (bestCount / total >= GAP_FILL_MIN_MAJORITY) {
-          fills.push([row, col, bestLu]);
+          const [bestLu, bestCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+          if (bestCount / total >= GAP_FILL_MIN_MAJORITY) {
+            fills.push([row, col, bestLu]);
+          }
+          break; // stop expanding once we have enough neighbours either way (filled or not)
         }
-        break; // stop expanding once we have enough neighbours either way (filled or not)
       }
     }
-  }
 
-  for (const [row, col, lu] of fills) cellGrid[row][col] = lu;
-  return fills.length;
+    if (fills.length === 0) break; // converged — no further progress possible
+    for (const [row, col, lu] of fills) cellGrid[row][col] = lu;
+    totalFilled += fills.length;
+  }
+  return totalFilled;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -321,17 +349,27 @@ function main() {
   }
 
   const filledCount = gapFillGrid(cellGrid, cellGrid[0].length, cellGrid.length);
+  // Gap-filled cells are kept in a SEPARATE map, not merged into `grid`. A gap-fill
+  // is inferred from nearby cells, not directly observed — it must never outrank a
+  // real signal from another source (OSM landuse/place nodes in particular). E.g.
+  // Sungai Petani's town core has zero direct iPlan coverage and sits inside the
+  // vast MADA rice-growing region, so gap-fill confidently (and wrongly) inferred
+  // 'paddy' there — before this split, that wrong inference was overriding OSM's
+  // correct place=city 'urban' detection because iPlan ran before OSM in
+  // grid1km.ts's priority chain. gridGapFilled is consulted by the app only as a
+  // last resort, AFTER OSM, so a real OSM answer always wins over an inference.
+  const gridGapFilled = {};
   for (let row = 0; row < cellGrid.length; row++) {
     for (let col = 0; col < cellGrid[row].length; col++) {
       const val = cellGrid[row][col];
       if (typeof val === 'string' && cellKeyOf[row][col] && !(cellKeyOf[row][col] in grid)) {
-        grid[cellKeyOf[row][col]] = val;
+        gridGapFilled[cellKeyOf[row][col]] = val;
       }
     }
   }
 
   mkdirSync(OUT_DIR, { recursive: true });
-  const payload = JSON.stringify({ version: 2, grid });
+  const payload = JSON.stringify({ version: 2, grid, gridGapFilled });
   writeFileSync(OUT_FILE, payload, 'utf8');
 
   const sizeMb = (payload.length / 1_048_576).toFixed(2);

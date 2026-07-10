@@ -535,6 +535,7 @@ export type LandUseClass =
   | 'industrial'
   | 'commercial'
   | 'urban'
+  | 'kampung' // rural village/settlement — distinct from 'urban' (proper towns/cities): lower density, more open land
   | 'infrastructure' // utility/infra facilities — water treatment, substations, telecom towers, drainage
   | 'forest'
   | 'water'   // still water body — lake/reservoir/pond, FPV-eligible

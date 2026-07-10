@@ -7,7 +7,7 @@ import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 import { overpassPost, stitchRings } from './overpass';
 
-const CACHE_KEY = 'northern-my-landuse-v9'; // v9: fixed place-node dead code (was always discarded by tagsToAttrs null-check) + sized radius by place type
+const CACHE_KEY = 'northern-my-landuse-v10'; // v10: village/hamlet place nodes now map to 'kampung', not 'urban'
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface LanduseRing {
@@ -183,8 +183,13 @@ function parseElements(elements: (OverpassElement & { members?: OverpassRelation
     // landuse=residential/commercial polygon coverage is frequently incomplete
     // even for large towns), while a hamlet is genuinely tiny.
     if (el.type === 'node' && typeof el.lat === 'number' && typeof el.lon === 'number' && el.tags['place']) {
-      const radius = PLACE_RING_RADIUS[el.tags['place']] ?? PLACE_RING_RADIUS.village;
-      pushRing(rings, { landUse: 'urban', floodRisk: 'low', isProtected: false },
+      const place = el.tags['place'];
+      const radius = PLACE_RING_RADIUS[place] ?? PLACE_RING_RADIUS.village;
+      // village/hamlet = rural settlement ('kampung'), distinct from proper
+      // town/city/suburb development ('urban') — much lower density, more open
+      // surrounding land, very different solar-development implications.
+      const isRural = place === 'village' || place === 'hamlet';
+      pushRing(rings, { landUse: isRural ? 'kampung' : 'urban', floodRisk: 'low', isProtected: false },
         createCircleRing(el.lat, el.lon, radius));
       continue;
     }
