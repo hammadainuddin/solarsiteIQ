@@ -9,7 +9,7 @@ import { useWorkflowAnalysis } from '../hooks/useWorkflowAnalysis';
 import type { TransmissionLine } from '../data/transmissionLines';
 import type { SubstationFeature } from '../data/infraLayers';
 import type { SolarWorkflowType } from '../types';
-import { scoreToVerdict } from '../utils/solarScoring';
+import { scoreToVerdict, GO_THRESHOLD, CONDITIONAL_GO_THRESHOLD } from '../utils/solarScoring';
 
 interface WorkflowDef {
   type: SolarWorkflowType;
@@ -179,8 +179,8 @@ export function SolarWorkflowPanel({ lines, subs }: Props) {
             <div className="flex items-center justify-between mt-1">
               <span className="text-muted text-[10px]">Composite</span>
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                tile.scores.composite >= 70 ? 'bg-green-500/20 text-green-400' :
-                tile.scores.composite >= 45 ? 'bg-amber-500/20 text-amber-400' :
+                tile.scores.composite >= GO_THRESHOLD ? 'bg-green-500/20 text-green-400' :
+                tile.scores.composite >= CONDITIONAL_GO_THRESHOLD ? 'bg-amber-500/20 text-amber-400' :
                 'bg-red-500/20 text-red-400'
               }`}>
                 {tile.scores.composite} — {scoreToVerdict(tile.scores.composite)}

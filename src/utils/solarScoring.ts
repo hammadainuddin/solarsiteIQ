@@ -88,14 +88,23 @@ export function scoreEnvSocial(isProtected: boolean, landUse: LandUseClass, floo
 }
 
 // ── Weighted Composite ────────────────────────────────────────────────────────
+// Land suitability (land + availability, both land-use-derived) is the
+// dominant criterion at 50% combined weight — tuned so the northern region's
+// 'Go' tier total stays comfortably under MyRER's Peninsular Malaysia solar
+// potential ceiling (<150 GW; northern region target <80 GW). Previously land
+// use was a minority factor (30% combined) and irradiance/grid/road access
+// could push marginal land (paddy, urban fringe) into 'Go' on infrastructure
+// merits alone — verified via simulation this let ~1,780 GW of gross
+// theoretical land (100% usable-fraction ground-mount assumption) collapse
+// into a still-unrealistic multi-hundred-GW 'Go' tier.
 export const DIMENSION_WEIGHTS = {
-  solar:        0.25,
-  grid:         0.20,
-  land:         0.20,
-  availability: 0.10,
-  climate:      0.10,
-  road:         0.08,
-  envSocial:    0.07,
+  solar:        0.20,
+  grid:         0.15,
+  land:         0.35,
+  availability: 0.15,
+  climate:      0.07,
+  road:         0.05,
+  envSocial:    0.03,
 } as const;
 
 export interface RawScores {
@@ -120,14 +129,23 @@ export function compositeScore(s: RawScores): number {
   );
 }
 
+// 71 (not the more obvious round 70) — calibrated together with the
+// land-dominant DIMENSION_WEIGHTS above via simulation against the real
+// land-use/PVGIS/grid-distance data so the 'Go' tier total lands under the
+// northern-region 80 GW target (MyRER: Peninsular Malaysia solar potential
+// <150 GW). Shared by every place that needs to know what counts as 'Go' —
+// do not hardcode 70 elsewhere.
+export const GO_THRESHOLD = 71;
+export const CONDITIONAL_GO_THRESHOLD = 45;
+
 export function scoreToVerdict(composite: number): 'Go' | 'Conditional Go' | 'Avoid' {
-  if (composite >= 70) return 'Go';
-  if (composite >= 45) return 'Conditional Go';
+  if (composite >= GO_THRESHOLD) return 'Go';
+  if (composite >= CONDITIONAL_GO_THRESHOLD) return 'Conditional Go';
   return 'Avoid';
 }
 
 export function scoreToColor(score: number, opacity = 0.65): string {
-  if (score >= 70) return `rgba(34, 197, 94,  ${opacity})`; // green-500
-  if (score >= 45) return `rgba(251, 191, 36, ${opacity})`; // amber-400
+  if (score >= GO_THRESHOLD) return `rgba(34, 197, 94,  ${opacity})`; // green-500
+  if (score >= CONDITIONAL_GO_THRESHOLD) return `rgba(251, 191, 36, ${opacity})`; // amber-400
   return                  `rgba(239, 68,  68,  ${opacity})`; // red-500
 }

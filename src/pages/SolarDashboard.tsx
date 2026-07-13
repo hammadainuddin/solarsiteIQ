@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { HexTile } from '../types';
+import { GO_THRESHOLD, CONDITIONAL_GO_THRESHOLD } from '../utils/solarScoring';
 
 interface Props {
   tiles: HexTile[];
@@ -17,8 +18,8 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
 
 export default function SolarDashboard({ tiles }: Props) {
   const stats = useMemo(() => {
-    const go   = tiles.filter((t) => t.scores.composite >= 70);
-    const cond = tiles.filter((t) => t.scores.composite >= 45 && t.scores.composite < 70);
+    const go   = tiles.filter((t) => t.scores.composite >= GO_THRESHOLD);
+    const cond = tiles.filter((t) => t.scores.composite >= CONDITIONAL_GO_THRESHOLD && t.scores.composite < GO_THRESHOLD);
 
     // Total estimated buildable capacity across all Go tiles
     const totalGoCapacityMW = go.reduce((sum, t) => sum + t.attributes.estimatedCapacityMW, 0);
@@ -30,7 +31,7 @@ export default function SolarDashboard({ tiles }: Props) {
       byState[s].total++;
       byState[s].avgScore += t.scores.composite;
       byState[s].capacityMW += t.attributes.estimatedCapacityMW;
-      if (t.scores.composite >= 70) byState[s].go++;
+      if (t.scores.composite >= GO_THRESHOLD) byState[s].go++;
     }
     for (const s of Object.values(byState)) s.avgScore = Math.round(s.avgScore / s.total);
 
@@ -73,7 +74,7 @@ export default function SolarDashboard({ tiles }: Props) {
                 <div className="flex items-center gap-2 mt-1.5">
                   <div className="flex-1 h-1 bg-surface-2 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${s.avgScore >= 70 ? 'bg-green-500' : s.avgScore >= 45 ? 'bg-amber-400' : 'bg-red-500'}`}
+                      className={`h-full rounded-full ${s.avgScore >= GO_THRESHOLD ? 'bg-green-500' : s.avgScore >= CONDITIONAL_GO_THRESHOLD ? 'bg-amber-400' : 'bg-red-500'}`}
                       style={{ width: `${s.avgScore}%` }}
                     />
                   </div>
