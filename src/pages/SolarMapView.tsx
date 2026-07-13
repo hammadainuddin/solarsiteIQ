@@ -11,6 +11,7 @@ import { SolarWorkflowPanel } from '../components/SolarWorkflowPanel';
 import { AssistantPanel } from '../components/AssistantPanel';
 import { SettingsModal } from '../components/SettingsModal';
 import { useAppContext } from '../context/AppContext';
+import { getGoThreshold } from '../utils/solarScoring';
 import type { HexTile } from '../types';
 import SiteAreaTool from '../components/SiteAreaTool';
 import type { TransmissionLine } from '../data/transmissionLines';
@@ -169,13 +170,14 @@ type Basemap = 'light' | 'dark' | 'satellite';
 // ── Layer panel ───────────────────────────────────────────────────────────────
 interface LayerPanelProps {
   showHex: boolean;      onToggleHex: () => void;
+  goOnly: boolean;       onToggleGoOnly: () => void;
   showLines: boolean;    onToggleLines: () => void;
   showSubs: boolean;     onToggleSubs: () => void;
   showZones: boolean;    onToggleZones: () => void;
   showBorders: boolean;  onToggleBorders: () => void;
   basemap: Basemap;      onBasemapChange: (b: Basemap) => void;
 }
-function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, onToggleSubs, showZones, onToggleZones, showBorders, onToggleBorders, basemap, onBasemapChange }: LayerPanelProps) {
+function LayerPanel({ showHex, onToggleHex, goOnly, onToggleGoOnly, showLines, onToggleLines, showSubs, onToggleSubs, showZones, onToggleZones, showBorders, onToggleBorders, basemap, onBasemapChange }: LayerPanelProps) {
   const [open, setOpen] = useState(false);
   return (
     <div className="absolute top-14 right-3 z-[1000]">
@@ -204,6 +206,7 @@ function LayerPanel({ showHex, onToggleHex, showLines, onToggleLines, showSubs, 
             <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wide mb-2 px-1">Layers</p>
             {[
               { label: 'Hex scoring grid',        active: showHex,     toggle: onToggleHex,     dot: '#22d3ee' },
+              { label: 'Go tiles only',           active: goOnly,      toggle: onToggleGoOnly,  dot: '#22c55e' },
               { label: 'State borders',           active: showBorders, toggle: onToggleBorders, dot: '#a78bfa' },
               { label: 'Transmission lines',      active: showLines,   toggle: onToggleLines,   dot: '#fbbf24' },
               { label: 'Substations',             active: showSubs,    toggle: onToggleSubs,    dot: '#38bdf8' },
@@ -301,6 +304,16 @@ export default function SolarMapView() {
   const subs: SubstationFeature[] = useMemo(
     () => [...osmSubs, ...extraSubstations],
     [osmSubs, extraSubstations],
+  );
+
+  // "Go tiles only" — display filter for the scoring grid. Uses the
+  // budget-calibrated cutoff, so what's shown always matches the dashboard's
+  // Go tier. Display-only: the site-area drawing tool keeps the full tile set
+  // so drawn-polygon analysis still reports Conditional/Avoid composition.
+  const [goOnly, setGoOnly] = useState(false);
+  const displayTiles = useMemo(
+    () => (goOnly ? tiles.filter((t) => t.scores.composite >= getGoThreshold()) : tiles),
+    [tiles, goOnly],
   );
 
   const handleTileClick = useCallback((tile: HexTile) => {
@@ -409,7 +422,7 @@ export default function SolarMapView() {
           {/* Hex scoring grid */}
           {showHex && (
             <HexGridLayer
-              tiles={tiles}
+              tiles={displayTiles}
               activeDimension={activeDimension}
               stateFilter={stateFilter}
               onTileClick={handleTileClick}
@@ -452,6 +465,7 @@ export default function SolarMapView() {
         <TileScoreLegend activeDimension={activeDimension} />
         <LayerPanel
           showHex={showHex}         onToggleHex={() => setShowHex((v) => !v)}
+          goOnly={goOnly}           onToggleGoOnly={() => setGoOnly((v) => !v)}
           showBorders={showBorders} onToggleBorders={() => setShowBorders((v) => !v)}
           showLines={showLines}     onToggleLines={() => setShowLines((v) => !v)}
           showSubs={showSubs}       onToggleSubs={() => setShowSubs((v) => !v)}
