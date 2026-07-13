@@ -309,11 +309,19 @@ function getLandUseForCell(
   // rectangle" pattern that caused the Kuala Gula protected-zone bug. This branch
   // is also the ONLY thing that runs in local dev, since worldcover.ts intentionally
   // stubs wcClass to 0 there (no Vercel API route available), so in dev mode this
-  // default applied to every single cell without iPlan/OSM data across all 4
-  // states — e.g. Sungai Petani's outskirts and the wider Kedah west coast
-  // reported as blanket 'paddy'. Default to 'idle_agri' (unknown/undetermined)
-  // instead of confidently asserting a specific crop with no actual evidence.
-  return { landUse: 'idle_agri', floodRisk: 'low', isProtected: false, wcClass: 0 };
+  // default applies to every cell without iPlan/OSM data across all 4 states.
+  //
+  // A later fix changed this to 'idle_agri' as a supposedly neutral "unknown"
+  // default — but idle_agri scores the MAXIMUM on both 'land' (95) and
+  // 'availability' (90), the two dimensions DIMENSION_WEIGHTS was subsequently
+  // rebalanced to dominate (50% combined). That made "we have no idea what
+  // this land is" score as "this is the best possible solar land", pushing
+  // thousands of genuinely unclassified cells into the 'Go' tier (confirmed:
+  // idle_agri alone accounted for 502 of 538 GW in a Go-tier simulation using
+  // this fallback). 'mixed_agri' (land=65, availability=60) is a genuinely
+  // middle-of-the-road choice — reflecting real uncertainty instead of
+  // optimistically assuming the best case.
+  return { landUse: 'mixed_agri', floodRisk: 'low', isProtected: false, wcClass: 0 };
 }
 
 // ── Build one tile ────────────────────────────────────────────────────────────
