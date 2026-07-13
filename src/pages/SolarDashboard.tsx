@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { HexTile } from '../types';
-import { GO_THRESHOLD, CONDITIONAL_GO_THRESHOLD } from '../utils/solarScoring';
+import { getGoThreshold, CONDITIONAL_GO_THRESHOLD, GO_CAPACITY_BUDGET_GW } from '../utils/solarScoring';
 
 interface Props {
   tiles: HexTile[];
@@ -22,8 +22,11 @@ function formatCapacity(mw: number): string {
 
 export default function SolarDashboard({ tiles }: Props) {
   const stats = useMemo(() => {
-    const go   = tiles.filter((t) => t.scores.composite >= GO_THRESHOLD);
-    const cond = tiles.filter((t) => t.scores.composite >= CONDITIONAL_GO_THRESHOLD && t.scores.composite < GO_THRESHOLD);
+    // Read the budget-calibrated cutoff inside the memo — it's set by the tile
+    // pipeline before tiles land in context, so recomputing on [tiles] is safe.
+    const goThreshold = getGoThreshold();
+    const go   = tiles.filter((t) => t.scores.composite >= goThreshold);
+    const cond = tiles.filter((t) => t.scores.composite >= CONDITIONAL_GO_THRESHOLD && t.scores.composite < goThreshold);
 
     // Capacity totals, kept separate by verdict tier — summing across ALL
     // tiles regardless of verdict (including 'Avoid') would badly overstate
@@ -38,7 +41,7 @@ export default function SolarDashboard({ tiles }: Props) {
       if (!byState[s]) byState[s] = { go: 0, total: 0, avgScore: 0, goCapacityMW: 0, condCapacityMW: 0 };
       byState[s].total++;
       byState[s].avgScore += t.scores.composite;
-      if (t.scores.composite >= GO_THRESHOLD) {
+      if (t.scores.composite >= goThreshold) {
         byState[s].go++;
         byState[s].goCapacityMW += t.attributes.estimatedCapacityMW;
       } else if (t.scores.composite >= CONDITIONAL_GO_THRESHOLD) {
@@ -47,7 +50,7 @@ export default function SolarDashboard({ tiles }: Props) {
     }
     for (const s of Object.values(byState)) s.avgScore = Math.round(s.avgScore / s.total);
 
-    return { go, cond, totalGoCapacityMW, totalCondCapacityMW, byState, total: tiles.length };
+    return { go, cond, totalGoCapacityMW, totalCondCapacityMW, byState, total: tiles.length, goThreshold };
   }, [tiles]);
 
   return (
@@ -63,8 +66,8 @@ export default function SolarDashboard({ tiles }: Props) {
         {/* KPI cards */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           <StatCard label="Total Area Screened" value={`${stats.total.toLocaleString()} km²`} sub={`${stats.total.toLocaleString()} cells · 1 km² each`} />
-          <StatCard label={`Go Cells (≥${GO_THRESHOLD})`} value={stats.go.length.toLocaleString()} sub={`${stats.go.length.toLocaleString()} km² viable`} color="text-green-400" />
-          <StatCard label={`Conditional (${CONDITIONAL_GO_THRESHOLD}–${GO_THRESHOLD - 1})`} value={stats.cond.length.toLocaleString()} sub={`${stats.cond.length.toLocaleString()} km²`} color="text-amber-400" />
+          <StatCard label={`Go Cells (≥${stats.goThreshold})`} value={stats.go.length.toLocaleString()} sub={`${stats.go.length.toLocaleString()} km² viable`} color="text-green-400" />
+          <StatCard label={`Conditional (${CONDITIONAL_GO_THRESHOLD}–${stats.goThreshold - 1})`} value={stats.cond.length.toLocaleString()} sub={`${stats.cond.length.toLocaleString()} km²`} color="text-amber-400" />
         </div>
 
         {/* Capacity cards — Go and Conditional Go shown separately, never combined,
@@ -74,7 +77,7 @@ export default function SolarDashboard({ tiles }: Props) {
           <StatCard
             label="Go Capacity"
             value={formatCapacity(stats.totalGoCapacityMW)}
-            sub="Go tiles · excl. protected land"
+            sub={`Go tiles · budget-capped ≤${GO_CAPACITY_BUDGET_GW} GW (MyRER-aligned)`}
             color="text-green-400"
           />
           <StatCard
@@ -96,7 +99,7 @@ export default function SolarDashboard({ tiles }: Props) {
                 <div className="flex items-center gap-2 mt-1.5">
                   <div className="flex-1 h-1 bg-surface-2 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${s.avgScore >= GO_THRESHOLD ? 'bg-green-500' : s.avgScore >= CONDITIONAL_GO_THRESHOLD ? 'bg-amber-400' : 'bg-red-500'}`}
+                      className={`h-full rounded-full ${s.avgScore >= stats.goThreshold ? 'bg-green-500' : s.avgScore >= CONDITIONAL_GO_THRESHOLD ? 'bg-amber-400' : 'bg-red-500'}`}
                       style={{ width: `${s.avgScore}%` }}
                     />
                   </div>

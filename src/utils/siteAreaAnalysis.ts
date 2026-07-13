@@ -4,7 +4,7 @@
 // and constraint data for the SiteAreaInfoBox.
 
 import type { HexTile } from '../types';
-import { GO_THRESHOLD, CONDITIONAL_GO_THRESHOLD } from './solarScoring';
+import { getGoThreshold, CONDITIONAL_GO_THRESHOLD } from './solarScoring';
 
 export interface SiteAreaResult {
   drawnAreaKm2: number;
@@ -86,7 +86,7 @@ export function analyzeArea(
   }
 
   const suitableCells = cellsInside.filter((t) => t.scores.composite >= CONDITIONAL_GO_THRESHOLD);
-  const goCells       = cellsInside.filter((t) => t.scores.composite >= GO_THRESHOLD);
+  const goCells       = cellsInside.filter((t) => t.scores.composite >= getGoThreshold());
 
   // Capacity totals
   let groundMountKWp = 0, fpvKWp = 0, rooftopKWp = 0;

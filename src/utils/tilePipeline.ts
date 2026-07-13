@@ -26,7 +26,7 @@ import { ensureOsmLanduseLoaded, OSM_LANDUSE_CACHE_KEY } from './osmLanduse';
 import { ensurePvgisGrid, PVGIS_CACHE_KEY } from './pvgis';
 import { ensureRoadDistGrid, ROAD_CACHE_KEY } from './roadDistGrid';
 import { ensureRiverGridLoaded, RIVER_CACHE_KEY } from './riverGrid';
-import { SCORING_CONFIG_VERSION } from './solarScoring';
+import { SCORING_CONFIG_VERSION, calibrateGoThreshold } from './solarScoring';
 import { fetchNorthernMyLinesFromOSM, fetchNorthernMySubsFromOSM } from './overpass';
 
 const TILES_CACHE_KEY = [
@@ -135,6 +135,7 @@ export async function runTilePipeline(
 
   const cached = await getCachedTiles();
   if (cached) {
+    calibrateGoThreshold(cached); // budget-fit the Go cutoff to the restored tiles
     cb.onPhase?.('');
     return cached;
   }
@@ -146,6 +147,7 @@ export async function runTilePipeline(
   );
   if (cancelled()) return [];
 
+  calibrateGoThreshold(tiles); // budget-fit the Go cutoff to the fresh tiles
   await setCachedTiles(tiles);
   cb.onPhase?.('');
   return tiles;

@@ -135,23 +135,66 @@ export function compositeScore(s: RawScores): number {
   );
 }
 
-// 71 (not the more obvious round 70) — calibrated together with the
-// land-dominant DIMENSION_WEIGHTS above via simulation against the real
-// land-use/PVGIS/grid-distance data so the 'Go' tier total lands under the
-// northern-region 80 GW target (MyRER: Peninsular Malaysia solar potential
-// <150 GW). Shared by every place that needs to know what counts as 'Go' —
-// do not hardcode 70 elsewhere.
-export const GO_THRESHOLD = 71;
+// ── Capacity-budgeted Go threshold ───────────────────────────────────────────
+// MyRER puts Peninsular Malaysia's total solar potential under 150 GW; the
+// northern region's 'Go' tier is targeted at <80 GW of that. A FIXED score
+// threshold cannot reliably deliver this: the composite distribution shifts
+// whenever any input dataset changes (denser OSM transmission lines raise
+// grid scores, OSM landuse coverage reclassifies cells, etc.), and a 1-point
+// threshold move can swing selected capacity by hundreds of GW near the
+// distribution's bulk. So instead of a hardcoded cutoff, the pipeline
+// CALIBRATES the Go threshold against the actual scored tiles: the smallest
+// threshold (never below GO_THRESHOLD_FLOOR) whose selected capacity fits the
+// budget. Selection is therefore ≤ budget by construction, always.
+
+export const GO_CAPACITY_BUDGET_GW = 80;
+// Floor from the original weight/threshold calibration — the bar never drops
+// below this even if the budget would allow it.
+export const GO_THRESHOLD_FLOOR = 71;
 export const CONDITIONAL_GO_THRESHOLD = 45;
 
+let _goThreshold = GO_THRESHOLD_FLOOR;
+
+/** Current Go cutoff — calibrated by the tile pipeline; floor until then. */
+export function getGoThreshold(): number {
+  return _goThreshold;
+}
+
+/**
+ * Calibrate the Go threshold so the total capacity of tiles at/above it stays
+ * within GO_CAPACITY_BUDGET_GW. Called by the tile pipeline whenever a fresh
+ * (or cache-restored) tile set is available.
+ */
+export function calibrateGoThreshold(
+  tiles: ReadonlyArray<{ scores: { composite: number }; attributes: { estimatedCapacityMW: number } }>,
+): number {
+  // capacityByScore[s] = total MW of tiles whose composite === s
+  const capacityByScore = new Array<number>(101).fill(0);
+  for (const t of tiles) {
+    const s = Math.max(0, Math.min(100, t.scores.composite));
+    capacityByScore[s] += t.attributes.estimatedCapacityMW;
+  }
+  const budgetMW = GO_CAPACITY_BUDGET_GW * 1000;
+  let cumulative = 0;
+  let threshold = 101; // nothing qualifies if even score-100 tiles overflow the budget
+  for (let s = 100; s >= GO_THRESHOLD_FLOOR; s--) {
+    if (cumulative + capacityByScore[s] > budgetMW) break;
+    cumulative += capacityByScore[s];
+    threshold = s;
+  }
+  _goThreshold = threshold;
+  console.info(`Go threshold calibrated to ${threshold} (${(cumulative / 1000).toFixed(1)} GW selected, budget ${GO_CAPACITY_BUDGET_GW} GW)`);
+  return threshold;
+}
+
 export function scoreToVerdict(composite: number): 'Go' | 'Conditional Go' | 'Avoid' {
-  if (composite >= GO_THRESHOLD) return 'Go';
+  if (composite >= _goThreshold) return 'Go';
   if (composite >= CONDITIONAL_GO_THRESHOLD) return 'Conditional Go';
   return 'Avoid';
 }
 
 export function scoreToColor(score: number, opacity = 0.65): string {
-  if (score >= GO_THRESHOLD) return `rgba(34, 197, 94,  ${opacity})`; // green-500
+  if (score >= _goThreshold) return `rgba(34, 197, 94,  ${opacity})`; // green-500
   if (score >= CONDITIONAL_GO_THRESHOLD) return `rgba(251, 191, 36, ${opacity})`; // amber-400
   return                  `rgba(239, 68,  68,  ${opacity})`; // red-500
 }
