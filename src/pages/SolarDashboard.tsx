@@ -16,26 +16,38 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
   );
 }
 
+function formatCapacity(mw: number): string {
+  return mw >= 1000 ? `${(mw / 1000).toFixed(1)} GW` : `${mw.toLocaleString()} MW`;
+}
+
 export default function SolarDashboard({ tiles }: Props) {
   const stats = useMemo(() => {
     const go   = tiles.filter((t) => t.scores.composite >= GO_THRESHOLD);
     const cond = tiles.filter((t) => t.scores.composite >= CONDITIONAL_GO_THRESHOLD && t.scores.composite < GO_THRESHOLD);
 
-    // Total estimated buildable capacity across all Go tiles
-    const totalGoCapacityMW = go.reduce((sum, t) => sum + t.attributes.estimatedCapacityMW, 0);
+    // Capacity totals, kept separate by verdict tier — summing across ALL
+    // tiles regardless of verdict (including 'Avoid') would badly overstate
+    // buildable capacity, since even Avoid-tier cells (e.g. paddy, protected
+    // land) can carry non-zero theoretical capacityKWp.
+    const totalGoCapacityMW   = go.reduce((sum, t) => sum + t.attributes.estimatedCapacityMW, 0);
+    const totalCondCapacityMW = cond.reduce((sum, t) => sum + t.attributes.estimatedCapacityMW, 0);
 
-    const byState: Record<string, { go: number; total: number; avgScore: number; capacityMW: number }> = {};
+    const byState: Record<string, { go: number; total: number; avgScore: number; goCapacityMW: number; condCapacityMW: number }> = {};
     for (const t of tiles) {
       const s = t.states[0] ?? 'Unknown';
-      if (!byState[s]) byState[s] = { go: 0, total: 0, avgScore: 0, capacityMW: 0 };
+      if (!byState[s]) byState[s] = { go: 0, total: 0, avgScore: 0, goCapacityMW: 0, condCapacityMW: 0 };
       byState[s].total++;
       byState[s].avgScore += t.scores.composite;
-      byState[s].capacityMW += t.attributes.estimatedCapacityMW;
-      if (t.scores.composite >= GO_THRESHOLD) byState[s].go++;
+      if (t.scores.composite >= GO_THRESHOLD) {
+        byState[s].go++;
+        byState[s].goCapacityMW += t.attributes.estimatedCapacityMW;
+      } else if (t.scores.composite >= CONDITIONAL_GO_THRESHOLD) {
+        byState[s].condCapacityMW += t.attributes.estimatedCapacityMW;
+      }
     }
     for (const s of Object.values(byState)) s.avgScore = Math.round(s.avgScore / s.total);
 
-    return { go, cond, totalGoCapacityMW, byState, total: tiles.length };
+    return { go, cond, totalGoCapacityMW, totalCondCapacityMW, byState, total: tiles.length };
   }, [tiles]);
 
   return (
@@ -49,16 +61,26 @@ export default function SolarDashboard({ tiles }: Props) {
         </div>
 
         {/* KPI cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           <StatCard label="Total Area Screened" value={`${stats.total.toLocaleString()} km²`} sub={`${stats.total.toLocaleString()} cells · 1 km² each`} />
-          <StatCard label="Go Cells (≥70)" value={stats.go.length.toLocaleString()} sub={`${stats.go.length.toLocaleString()} km² viable`} color="text-green-400" />
-          <StatCard label="Conditional (45–69)" value={stats.cond.length.toLocaleString()} sub={`${stats.cond.length.toLocaleString()} km²`} color="text-amber-400" />
+          <StatCard label={`Go Cells (≥${GO_THRESHOLD})`} value={stats.go.length.toLocaleString()} sub={`${stats.go.length.toLocaleString()} km² viable`} color="text-green-400" />
+          <StatCard label={`Conditional (${CONDITIONAL_GO_THRESHOLD}–${GO_THRESHOLD - 1})`} value={stats.cond.length.toLocaleString()} sub={`${stats.cond.length.toLocaleString()} km²`} color="text-amber-400" />
+        </div>
+
+        {/* Capacity cards — Go and Conditional Go shown separately, never combined,
+            since blending them would obscure how much of the total sits in the
+            lower-confidence Conditional tier. */}
+        <div className="grid grid-cols-2 gap-4">
           <StatCard
-            label="Est. Buildable Capacity"
-            value={stats.totalGoCapacityMW >= 1000
-              ? `${(stats.totalGoCapacityMW / 1000).toFixed(1)} GW`
-              : `${stats.totalGoCapacityMW.toLocaleString()} MW`}
+            label="Go Capacity"
+            value={formatCapacity(stats.totalGoCapacityMW)}
             sub="Go tiles · excl. protected land"
+            color="text-green-400"
+          />
+          <StatCard
+            label="Conditional Go Capacity"
+            value={formatCapacity(stats.totalCondCapacityMW)}
+            sub="Conditional tiles · needs further review"
             color="text-amber-400"
           />
         </div>
@@ -80,10 +102,11 @@ export default function SolarDashboard({ tiles }: Props) {
                   </div>
                   <span className="text-white text-[10px] font-medium w-6">{s.avgScore}</span>
                 </div>
-                <p className="text-amber-400 text-[10px] font-semibold mt-1.5">
-                  {s.capacityMW >= 1000
-                    ? `${(s.capacityMW / 1000).toFixed(1)} GW`
-                    : `${s.capacityMW.toLocaleString()} MW`} est.
+                <p className="text-green-400 text-[10px] font-semibold mt-1.5">
+                  Go: {formatCapacity(s.goCapacityMW)}
+                </p>
+                <p className="text-amber-400 text-[10px] font-semibold">
+                  Cond: {formatCapacity(s.condCapacityMW)}
                 </p>
               </div>
             ))}
