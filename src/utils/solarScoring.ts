@@ -107,6 +107,12 @@ export const DIMENSION_WEIGHTS = {
   envSocial:    0.03,
 } as const;
 
+// Bump whenever DIMENSION_WEIGHTS, GO_THRESHOLD, or any scoring function
+// changes — it feeds the composed tile-cache key in tilePipeline.ts, so stale
+// pre-scored tiles in IndexedDB are discarded instead of silently served with
+// outdated scores.
+export const SCORING_CONFIG_VERSION = 'scoring-v2';
+
 export interface RawScores {
   solar: number;
   grid: number;

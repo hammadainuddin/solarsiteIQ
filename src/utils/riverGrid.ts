@@ -5,7 +5,7 @@
 
 import { idbGet, idbSet } from './idbCache';
 
-const CACHE_KEY    = 'river-grid-v3'; // v3 = fixed multipolygon ring stitching (was falsely marking paddy fields as river)
+export const RIVER_CACHE_KEY = 'river-grid-v3'; // v3 = fixed multipolygon ring stitching (was falsely marking paddy fields as river)
 const CACHE_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
 
 // Coverage fraction at/above which a cell is considered "dominant river" —
@@ -19,7 +19,7 @@ let _cells: Record<string, number> | null = null;
 let _loadPromise: Promise<void> | null = null;
 
 async function loadGrid(): Promise<void> {
-  const cached = await idbGet<Record<string, number>>(CACHE_KEY);
+  const cached = await idbGet<Record<string, number>>(RIVER_CACHE_KEY);
   if (cached && (Date.now() - cached.fetchedAt) < CACHE_TTL_MS) {
     _cells = cached.data;
     console.info(`River grid: ${Object.keys(_cells).length} cells from IndexedDB`);
@@ -32,7 +32,7 @@ async function loadGrid(): Promise<void> {
     const data = (await res.json()) as RiverGridFile;
     if (data?.version === 2 && data.cells) {
       _cells = data.cells;
-      await idbSet(CACHE_KEY, data.cells);
+      await idbSet(RIVER_CACHE_KEY, data.cells);
       console.info(`River grid: ${Object.keys(_cells).length} cells loaded from CDN`);
     } else {
       _cells = {};

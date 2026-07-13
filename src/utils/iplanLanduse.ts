@@ -21,7 +21,7 @@
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-const CACHE_KEY    = 'iplan-grid-v12'; // v12 = fixed state-service routing bug (overlapping bboxes were misrouting border-area queries to the wrong state's cadastral service)
+export const IPLAN_CACHE_KEY = 'iplan-grid-v12'; // v12 = fixed state-service routing bug (overlapping bboxes were misrouting border-area queries to the wrong state's cadastral service)
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {
@@ -52,7 +52,7 @@ export function ensureIplanLanduseLoaded(_signal?: AbortSignal): Promise<void> {
   if (_loadPromise) return _loadPromise;
   _loadPromise = (async () => {
     // Check IndexedDB cache first (avoids refetch on subsequent page loads)
-    const cached = await idbGet<IplanCacheData>(CACHE_KEY);
+    const cached = await idbGet<IplanCacheData>(IPLAN_CACHE_KEY);
     if (cached && (Date.now() - cached.fetchedAt) < CACHE_TTL_MS) {
       _grid = cached.data.grid;
       _gridGapFilled = cached.data.gridGapFilled;
@@ -73,7 +73,7 @@ export function ensureIplanLanduseLoaded(_signal?: AbortSignal): Promise<void> {
         _grid = data.grid;
         _gridGapFilled = data.gridGapFilled ?? {};
         const cacheData: IplanCacheData = { grid: _grid, gridGapFilled: _gridGapFilled };
-        await idbSet(CACHE_KEY, cacheData);
+        await idbSet(IPLAN_CACHE_KEY, cacheData);
         console.info(`iPlan: loaded ${Object.keys(data.grid).length} direct + ${Object.keys(_gridGapFilled).length} gap-filled grid cells`);
       } else {
         _grid = {};

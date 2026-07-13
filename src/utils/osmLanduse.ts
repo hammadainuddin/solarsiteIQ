@@ -7,7 +7,7 @@ import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 import { overpassPost, stitchRings } from './overpass';
 
-const CACHE_KEY = 'northern-my-landuse-v10'; // v10: village/hamlet place nodes now map to 'kampung', not 'urban'
+export const OSM_LANDUSE_CACHE_KEY = 'northern-my-landuse-v10'; // v10: village/hamlet place nodes now map to 'kampung', not 'urban'
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface LanduseRing {
@@ -279,7 +279,7 @@ export function ensureOsmLanduseLoaded(signal?: AbortSignal): Promise<void> {
   if (_loadPromise) return _loadPromise;
   _loadPromise = (async () => {
     // Check IndexedDB cache first — IDB has no size limit so large ring datasets persist reliably
-    const cached = await idbGet<LanduseRing[]>(CACHE_KEY);
+    const cached = await idbGet<LanduseRing[]>(OSM_LANDUSE_CACHE_KEY);
     if (cached && (Date.now() - cached.fetchedAt) < CACHE_TTL_MS) {
       _rings = cached.data;
       return;
@@ -288,7 +288,7 @@ export function ensureOsmLanduseLoaded(signal?: AbortSignal): Promise<void> {
     try {
       const rings = await fetchFromOverpass(signal);
       _rings = rings;
-      await idbSet(CACHE_KEY, rings);
+      await idbSet(OSM_LANDUSE_CACHE_KEY, rings);
     } catch (err) {
       if ((err as Error).name === 'AbortError') throw err;
       console.warn('OSM landuse fetch failed, continuing without polygon data:', err);

@@ -1,10 +1,8 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { MapContainer, TileLayer, Pane, Marker, useMapEvents, CircleMarker, Tooltip, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Layers, MapPin, Zap, Loader2, Settings } from 'lucide-react';
-import { NORTHERN_MY_LINES } from '../data/northernMyTransmissionLines';
-import { NORTHERN_MY_SUBSTATIONS } from '../data/northernMySubstations';
 import HexGridLayer from '../components/HexGridLayer';
 import TileScoreLegend from '../components/TileScoreLegend';
 import DimensionSelector from '../components/DimensionSelector';
@@ -14,17 +12,9 @@ import { AssistantPanel } from '../components/AssistantPanel';
 import { SettingsModal } from '../components/SettingsModal';
 import { useAppContext } from '../context/AppContext';
 import type { HexTile } from '../types';
-import { generateNorthernMyHexTiles } from '../utils/hexGrid';
-import { ensurePvgisGrid } from '../utils/pvgis';
-import { ensureWorldcoverLoaded } from '../utils/worldcover';
-import { ensureOsmLanduseLoaded } from '../utils/osmLanduse';
-import { ensureIplanLanduseLoaded } from '../utils/iplanLanduse';
-import { ensureRoadDistGrid } from '../utils/roadDistGrid';
-import { ensureRiverGridLoaded } from '../utils/riverGrid';
 import SiteAreaTool from '../components/SiteAreaTool';
 import type { TransmissionLine } from '../data/transmissionLines';
 import type { SubstationFeature } from '../data/infraLayers';
-import { fetchNorthernMyLinesFromOSM, fetchNorthernMySubsFromOSM } from '../utils/overpass';
 import { INDUSTRIAL_ZONES, ZONE_TYPE_COLORS, ZONE_TYPE_LABELS } from '../data/industrialZones';
 import type { IndustrialZone } from '../data/industrialZones';
 import StateBoundaries from '../components/StateBoundaries';
@@ -292,7 +282,8 @@ export default function SolarMapView() {
     activeDimension, setActiveDimension,
     stateFilter, setStateFilter,
     extraSubstations,
-    boundaries,
+    tiles, tilePhase, tileProgress, tileTotalCells,
+    osmLines, osmSubs,
   } = useAppContext();
 
   // Infra layers default OFF — enables on-demand to keep initial load fast
@@ -305,109 +296,12 @@ export default function SolarMapView() {
   const [basemap, setBasemap] = useState<Basemap>('light');
   const [drawMode, setDrawMode] = useState(false);
 
-  // OSM-fetched infra — state drives map display; pipeline loads fresh values into local vars
-  const [osmLines, setOsmLines] = useState<TransmissionLine[]>(NORTHERN_MY_LINES);
-  const [osmSubs,  setOsmSubs]  = useState<SubstationFeature[]>(NORTHERN_MY_SUBSTATIONS);
-
+  // Tiles + OSM infra come from the shared pipeline in AppContext — generated
+  // once app-wide, cached in IndexedDB, survives route changes and reloads.
   const subs: SubstationFeature[] = useMemo(
     () => [...osmSubs, ...extraSubstations],
     [osmSubs, extraSubstations],
   );
-
-  // Async tile generation: WorldCover → iPlan → OSM → PVGIS → 1 km grid
-  const [tiles, setTiles] = useState<HexTile[]>([]);
-  const [precomputeProgress, setPrecomputeProgress] = useState(0);
-  const [precomputePhase, setPrecomputePhase] = useState('');
-  const [totalCells, setTotalCells] = useState(0);
-
-  useEffect(() => {
-    if (!boundaries || boundaries.length === 0) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        setTiles([]);
-        setPrecomputeProgress(0);
-
-        // Step 1: WorldCover (instant in DEV; one API call in prod)
-        setPrecomputePhase('Loading land cover…');
-        await ensureWorldcoverLoaded();
-        if (cancelled) return;
-
-        // Step 2: iPlan official land use — non-blocking.
-        // 500 ms is enough for an IndexedDB cache hit to resolve synchronously.
-        // If the remote server is unreachable the grid falls back to OSM/WorldCover;
-        // a successful background load is cached in IndexedDB for the next session.
-        setPrecomputePhase('Loading official land use data…');
-        await Promise.race([
-          ensureIplanLanduseLoaded().catch(() => {}),
-          new Promise<void>((resolve) => setTimeout(resolve, 500)),
-        ]);
-        if (cancelled) return;
-
-        // Step 3: OSM landuse polygons (secondary — fills iPlan gaps, cached 7 days)
-        setPrecomputePhase('Loading OSM land use data…');
-        await ensureOsmLanduseLoaded();
-        if (cancelled) return;
-
-        // Step 4: Load PVGIS solar yield grid (IDB-cached, 0.05° resolution)
-        setPrecomputePhase('Loading solar irradiance data…');
-        await ensurePvgisGrid();
-        if (cancelled) return;
-
-        // Step 4b: Load road distance grid (IDB-cached, pre-computed per 1km cell)
-        setPrecomputePhase('Loading road access data…');
-        await ensureRoadDistGrid();
-        if (cancelled) return;
-
-        // Step 4b2: Load river polygon coverage grid (IDB-cached, ground-truth OSM geometry)
-        setPrecomputePhase('Loading river geometry…');
-        await ensureRiverGridLoaded();
-        if (cancelled) return;
-
-        // Step 4c: Fetch transmission lines + substations from IDB (instant on warm cache).
-        // Fetching here gives the pipeline local variables — avoids the stale-closure problem
-        // where generateNorthernMyHexTiles would otherwise use the initial NORTHERN_MY_LINES
-        // snapshot captured when this effect was created.
-        setPrecomputePhase('Loading transmission network…');
-        const [pipelineLines, pipelineSubs] = await Promise.all([
-          fetchNorthernMyLinesFromOSM(
-            132_000, undefined, undefined,
-            (fresh) => { if (!cancelled && fresh.length > 0) setOsmLines(fresh); },
-          ).then((ls) => { if (!cancelled && ls.length > 0) setOsmLines(ls); return ls; }),
-          fetchNorthernMySubsFromOSM(
-            132, undefined, undefined,
-            (fresh) => { if (!cancelled && fresh.length > 0) setOsmSubs(fresh); },
-          ).then((ss) => { if (!cancelled && ss.length > 0) setOsmSubs(ss); return ss; }),
-        ]);
-        if (cancelled) return;
-
-        const allSubs = [...pipelineSubs, ...extraSubstations];
-
-        // Step 5: Generate all 1km tiles — O(1) distance lookups, so fast
-        setPrecomputePhase('Building 1 km grid…');
-        const result = await generateNorthernMyHexTiles(
-          pipelineLines, allSubs, boundaries,
-          (done, total) => {
-            if (!cancelled) {
-              setTotalCells(total);
-              setPrecomputeProgress(Math.round((done / total) * 100));
-            }
-          },
-        );
-        if (cancelled) return;
-
-        setTiles(result);
-        setPrecomputeProgress(100);
-        setPrecomputePhase('');
-
-        // PVGIS data is pre-baked into public/data/pvgis-grid.json — no background fetch needed
-      } catch (err) {
-        console.error('Tile precompute error:', err);
-        setPrecomputePhase('');
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [boundaries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTileClick = useCallback((tile: HexTile) => {
     setSelectedTile(tile);
@@ -463,7 +357,7 @@ export default function SolarMapView() {
           </button>
         </div>
 
-        <SolarWorkflowPanel lines={NORTHERN_MY_LINES} subs={subs} />
+        <SolarWorkflowPanel lines={osmLines} subs={subs} />
       </aside>
 
       {/* ── Map ─────────────────────────────────────────────────────────────── */}
@@ -567,22 +461,22 @@ export default function SolarMapView() {
 
 
         {/* Grid precompute progress bar */}
-        {precomputePhase && (
+        {tilePhase && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[2100] bg-slate-900/95 border border-slate-700 rounded-xl px-4 py-2.5 shadow-xl min-w-[280px]">
             <div className="flex items-center gap-2 mb-1.5">
               <Loader2 size={12} className="text-amber-400 animate-spin shrink-0" />
-              <span className="text-slate-300 text-xs">{precomputePhase}</span>
-              <span className="ml-auto text-slate-500 text-[10px]">{precomputeProgress}%</span>
+              <span className="text-slate-300 text-xs">{tilePhase}</span>
+              <span className="ml-auto text-slate-500 text-[10px]">{tileProgress}%</span>
             </div>
             <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-amber-400 rounded-full transition-all duration-300"
-                style={{ width: `${precomputeProgress}%` }}
+                style={{ width: `${tileProgress}%` }}
               />
             </div>
-            {totalCells > 0 && precomputeProgress >= 40 && (
+            {tileTotalCells > 0 && tileProgress > 0 && (
               <p className="text-slate-500 text-[10px] mt-1 text-right">
-                {Math.min(Math.round((precomputeProgress - 40) / 60 * totalCells), totalCells).toLocaleString()} / {totalCells.toLocaleString()} cells
+                {Math.min(Math.round(tileProgress / 100 * tileTotalCells), tileTotalCells).toLocaleString()} / {tileTotalCells.toLocaleString()} cells
               </p>
             )}
           </div>

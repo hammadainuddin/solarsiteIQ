@@ -1,7 +1,11 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import type { SolarWorkflowType, PinLocation, HexTile, HexScoreDimension, NorthernMyState } from '../types';
 import type { SubstationFeature } from '../data/infraLayers';
+import type { TransmissionLine } from '../data/transmissionLines';
 import { fetchNorthernMyBoundariesFromOSM, type StateBoundaryGeo } from '../utils/overpass';
+import { runTilePipeline } from '../utils/tilePipeline';
+import { NORTHERN_MY_LINES } from '../data/northernMyTransmissionLines';
+import { NORTHERN_MY_SUBSTATIONS } from '../data/northernMySubstations';
 import type { LLMConfig } from '../utils/llmConfig';
 
 export interface AppContextValue {
@@ -37,6 +41,15 @@ export interface AppContextValue {
   // OSM state boundary polygons — fetched once, used both for rendering borders
   // and as ground truth for offshore-tile exclusion in hex generation.
   boundaries: StateBoundaryGeo[] | null;
+
+  // Shared tile pipeline — runs ONCE app-wide (results cached in IndexedDB);
+  // both the dashboard and the screening map read the same scored tiles.
+  tiles: HexTile[];
+  tilePhase: string;          // '' when idle/done — non-empty while pipeline is working
+  tileProgress: number;       // 0-100 within the "Building 1 km grid" step
+  tileTotalCells: number;
+  osmLines: TransmissionLine[];
+  osmSubs: SubstationFeature[];
 
   // Shared LLM config — fetched from /api/config on mount.
   // Takes priority over per-user localStorage config. Null until resolved.
@@ -93,6 +106,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addSubstations = useCallback((subs: SubstationFeature[]) => setExtraSubstations((prev) => [...prev, ...subs]), []);
 
+  // ── Shared tile pipeline ────────────────────────────────────────────────────
+  const [tiles, setTiles] = useState<HexTile[]>([]);
+  const [tilePhase, setTilePhase] = useState('');
+  const [tileProgress, setTileProgress] = useState(0);
+  const [tileTotalCells, setTileTotalCells] = useState(0);
+  const [osmLines, setOsmLines] = useState<TransmissionLine[]>(NORTHERN_MY_LINES);
+  const [osmSubs, setOsmSubs] = useState<SubstationFeature[]>(NORTHERN_MY_SUBSTATIONS);
+  const pipelineStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (!boundaries || boundaries.length === 0) return;
+    if (pipelineStartedRef.current) return; // run once per app session — cache handles reloads
+    pipelineStartedRef.current = true;
+
+    let cancelled = false;
+    runTilePipeline(boundaries, extraSubstations, {
+      onPhase: (p) => { if (!cancelled) setTilePhase(p); },
+      onProgress: (pct, total) => {
+        if (!cancelled) { setTileProgress(pct); setTileTotalCells(total); }
+      },
+      onLines: (ls) => { if (!cancelled) setOsmLines(ls); },
+      onSubs: (ss) => { if (!cancelled) setOsmSubs(ss); },
+      isCancelled: () => cancelled,
+    })
+      .then((result) => {
+        if (!cancelled && result.length > 0) {
+          setTiles(result);
+          setTileProgress(100);
+        }
+      })
+      .catch((err) => {
+        console.error('Tile pipeline error:', err);
+        if (!cancelled) setTilePhase('');
+      });
+    return () => { cancelled = true; };
+    // extraSubstations intentionally omitted: matches previous behaviour where
+    // uploads after the pipeline started did not retroactively rescore tiles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boundaries]);
+
   const openClaudeWithPrompt = useCallback((prompt: string) => {
     setPendingClaudePrompt(prompt);
     setClaudeOpen(true);
@@ -119,6 +172,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     extraSubstations,
     addSubstations,
     boundaries,
+    tiles,
+    tilePhase,
+    tileProgress,
+    tileTotalCells,
+    osmLines,
+    osmSubs,
     sharedLLMConfig,
     sharedLLMConfigLoaded,
     setSharedLLMConfig,

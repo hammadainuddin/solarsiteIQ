@@ -6,9 +6,6 @@ import SolarMapView from './pages/SolarMapView';
 import { AssistantPanel } from './components/AssistantPanel';
 import { AppProvider, useAppContext } from './context/AppContext';
 import { AlertTriangle, X } from 'lucide-react';
-import { NORTHERN_MY_LINES } from './data/northernMyTransmissionLines';
-import { NORTHERN_MY_SUBSTATIONS } from './data/northernMySubstations';
-import { generateNorthernMyHexTiles } from './utils/hexGrid';
 
 const LOAD_STEPS = [
   'Initializing Solar SiteIQ...',
@@ -52,15 +49,12 @@ function LoadingScreen({ step, progress }: { step: number; progress: number }) {
 
 function AppInner() {
   const [mobileDismissed, setMobileDismissed] = useState(false);
-  const { boundaries } = useAppContext();
-
-  const [tiles, setTiles] = useState<import('./types').HexTile[]>([]);
-  useEffect(() => {
-    if (!boundaries || boundaries.length === 0) return;
-    generateNorthernMyHexTiles(NORTHERN_MY_LINES, NORTHERN_MY_SUBSTATIONS, boundaries)
-      .then(setTiles)
-      .catch(console.error);
-  }, [boundaries]);
+  // Tiles come from the single shared pipeline in AppContext — previously this
+  // component ran its own duplicate generation with static fallback lines and
+  // NO land-use/PVGIS data loaded, so the dashboard scored every cell on blank
+  // defaults and showed wildly inflated capacity figures that never matched
+  // the screening map.
+  const { tiles } = useAppContext();
 
   return (
     <>

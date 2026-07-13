@@ -12,7 +12,7 @@
 
 import { idbGet, idbSet } from './idbCache';
 
-const ROAD_CACHE_KEY    = 'road-dist-v1';
+export const ROAD_CACHE_KEY    = 'road-dist-v1';
 const ROAD_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 interface RoadDistFile {

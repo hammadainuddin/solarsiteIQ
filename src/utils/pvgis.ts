@@ -44,7 +44,7 @@ export interface PvgisResult {
 
 import { idbGet, idbSet } from './idbCache';
 
-const PVGIS_CACHE_KEY    = 'pvgis-grid-v4'; // v4 = filled ~38% missing points (2179->3007 pts) + distance-weighted corner fallback
+export const PVGIS_CACHE_KEY    = 'pvgis-grid-v4'; // v4 = filled ~38% missing points (2179->3007 pts) + distance-weighted corner fallback
 const PVGIS_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — irradiance data is very stable
 
 interface PvgisPoint    { lat: number; lng: number; eY: number; hiY: number; pr: number }
