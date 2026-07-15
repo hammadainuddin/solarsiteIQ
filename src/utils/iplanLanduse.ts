@@ -21,7 +21,7 @@
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-export const IPLAN_CACHE_KEY = 'iplan-grid-v12'; // v12 = fixed state-service routing bug (overlapping bboxes were misrouting border-area queries to the wrong state's cadastral service)
+export const IPLAN_CACHE_KEY = 'iplan-grid-v13'; // v13 = split livestock + aquaculture out of mixed_agri
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {
@@ -38,8 +38,8 @@ interface IplanCacheData {
 let _grid: Record<string, string> | null = null;
 let _gridGapFilled: Record<string, string> | null = null;
 
-// paddy and river cells have elevated flood risk in Malaysia
-const FLOOD_RISK_HIGH: ReadonlySet<string> = new Set(['paddy', 'river']);
+// paddy, river and aquaculture (low-lying water-adjacent ponds) have elevated flood risk
+const FLOOD_RISK_HIGH: ReadonlySet<string> = new Set(['paddy', 'river', 'aquaculture']);
 // forest from iPlan is always protected reserve forest (plantation/community wood = 'idle_agri')
 // river is never developable — same treatment as protected land for capacity purposes
 const PROTECTED_CLASSES: ReadonlySet<string> = new Set(['forest', 'river']);

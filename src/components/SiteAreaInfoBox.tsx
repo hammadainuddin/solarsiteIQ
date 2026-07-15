@@ -12,6 +12,8 @@ const LAND_USE_LABELS: Record<string, string> = {
   idle_agri:  'Idle / Vacant',
   rubber:     'Rubber',
   mixed_agri: 'Mixed Agri',
+  livestock:  'Livestock',
+  aquaculture:'Aquaculture (FPV)',
   oil_palm:   'Oil Palm',
   paddy:      'Paddy',
   industrial: 'Industrial',

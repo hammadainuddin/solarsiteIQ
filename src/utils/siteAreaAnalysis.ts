@@ -24,8 +24,8 @@ export interface SiteAreaResult {
   topConstraint: string;
 }
 
-const GROUND_MOUNT_TYPES = new Set(['idle_agri', 'rubber', 'mixed_agri', 'oil_palm', 'paddy']);
-const FPV_TYPES           = new Set(['water']);
+const GROUND_MOUNT_TYPES = new Set(['idle_agri', 'rubber', 'mixed_agri', 'oil_palm', 'paddy', 'livestock']);
+const FPV_TYPES           = new Set(['water', 'aquaculture']); // aquaculture ponds host floating PV
 const ROOFTOP_TYPES       = new Set(['industrial', 'commercial']);
 
 // ── Shoelace area (degrees → km²) ────────────────────────────────────────────

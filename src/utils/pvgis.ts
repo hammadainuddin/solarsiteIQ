@@ -24,6 +24,8 @@ export const USABLE_FRACTION: Partial<Record<string, number>> = {
   mixed_agri: 1.00,
   oil_palm:   1.00,
   paddy:      1.00,
+  livestock:  0.90,  // grazing land/sheds — mostly clearable, some occupied structures
+  aquaculture:0.30,  // FPV over fish/shrimp ponds (like still water)
   water:      0.30,  // FPV: 30% of still-water body usable (lakes, reservoirs, ponds)
   industrial: 0.50,  // ~30% rooftop + ~20% carpark of gross area
   commercial: 0.40,  // ~25% rooftop + ~15% carpark of gross area

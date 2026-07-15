@@ -391,7 +391,8 @@ function buildCell(
   // Availability: proportion of tile area realistically acquirable
   const AVAIL_SCORES: Partial<Record<LandUseClass, number>> = {
     idle_agri: 90, rubber: 70, mixed_agri: 60, oil_palm: 50,
-    paddy: 25, water: 40, industrial: 65, commercial: 55,
+    livestock: 45, aquaculture: 40, paddy: 25, water: 40,
+    industrial: 65, commercial: 55,
     urban: 5, kampung: 10, infrastructure: 3, forest: 0, river: 0,
   };
   const availability = isProtected ? 0 : ((AVAIL_SCORES[landUse as LandUseClass] ?? 50));

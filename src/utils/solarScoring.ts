@@ -34,9 +34,11 @@ const LAND_USE_SCORES: Record<LandUseClass, number> = {
   idle_agri:  95,
   rubber:     75,
   mixed_agri: 65,
+  livestock:  55, // active animal farming; grazing land is open but acquisition harder
   oil_palm:   55,
   industrial: 60, // rooftop — landlord agreement needed
   commercial: 55, // rooftop — complex ownership/tenancy
+  aquaculture:45, // fish/shrimp ponds — FPV-eligible, active business, extra permitting
   paddy:      35, // food security constraint, conversion requires approval
   water:      45, // FPV viable but extra permitting
   urban:      10,
@@ -111,7 +113,7 @@ export const DIMENSION_WEIGHTS = {
 // changes — it feeds the composed tile-cache key in tilePipeline.ts, so stale
 // pre-scored tiles in IndexedDB are discarded instead of silently served with
 // outdated scores.
-export const SCORING_CONFIG_VERSION = 'scoring-v3'; // v3 = Langkawi exclusion + Suitable middle tier
+export const SCORING_CONFIG_VERSION = 'scoring-v4'; // v4 = livestock+aquaculture classes, their scoring entries
 
 export interface RawScores {
   solar: number;

@@ -39,6 +39,10 @@ const STATE_SERVICES = [
   { key: 'perlis', service: 'GTsemasa_09', s: 6.25, n: 6.75, w: 99.88, e: 100.52 },
   { key: 'penang', service: 'GTsemasa_07', s: 5.08, n: 5.68, w: 100.08, e: 100.58 },
   { key: 'kedah',  service: 'GTsemasa_02', s: 5.50, n: 6.80, w: 99.85, e: 101.30 },
+  // Langkawi is Kedah territory but sits WEST of the mainland Kedah bbox (w:99.85);
+  // a tight dedicated zone routes it to the same GTsemasa_02 service so the island
+  // gets real iPlan coverage instead of falling through to the mixed_agri default.
+  { key: 'langkawi', service: 'GTsemasa_02', s: 6.10, n: 6.55, w: 99.55, e: 99.90 },
   { key: 'perak',  service: 'GTsemasa_08', s: 3.68, n: 5.65, w: 100.18, e: 102.05 },
 ];
 

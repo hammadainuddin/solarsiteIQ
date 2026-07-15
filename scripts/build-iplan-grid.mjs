@@ -34,6 +34,7 @@ const STATE_BOUNDS = [
   { s: 6.25, n: 6.75, w: 99.88, e: 100.52 }, // Perlis
   { s: 5.08, n: 5.68, w: 100.08, e: 100.58 }, // Penang
   { s: 5.50, n: 6.80, w: 99.85, e: 101.30 }, // Kedah
+  { s: 6.10, n: 6.55, w: 99.55, e: 99.90 },  // Langkawi (Kedah) — west of mainland bbox
   { s: 3.68, n: 5.65, w: 100.18, e: 102.05 }, // Perak
 ];
 
@@ -89,7 +90,13 @@ function iplanToLandUse(attrs) {
     if (g3.includes('getah') || g3.includes('rubber') || g2.includes('getah')) return 'rubber';
     if (g3.includes('padi') || g3.includes('paddy') || g2.includes('padi') || g2.includes('paddy')) return 'paddy';
     if (g3.includes('tidak diusahakan') || g3.includes('terbiar') || g3.includes('kosong')) return 'idle_agri';
-    if (g2.includes('penternakan') || g2.includes('ternakan') || g3.includes('penternakan') || g3.includes('ternakan')) return 'mixed_agri';
+    // Aquaculture (g2='Akuakultur' — Ikan/fish PT301, Udang/shrimp PT302, PT303)
+    // and livestock (g2='Penternakan' — cattle PT201, poultry PT205, grazing
+    // pasture PT209, etc.) are distinct active uses, NOT generic mixed crop land.
+    // Check aquaculture first: its ponds are water surface (FPV-eligible),
+    // fundamentally different from land-based livestock.
+    if (g2.includes('akuakultur') || g3.includes('akuakultur') || g3.includes('ikan') || g3.includes('udang')) return 'aquaculture';
+    if (g2.includes('penternakan') || g2.includes('ternakan') || g3.includes('penternakan') || g3.includes('ternakan') || g3.includes('ragut')) return 'livestock';
     return 'mixed_agri';
   }
   if (g1 === 'Tanah Kosong') {
@@ -180,7 +187,7 @@ function iplanToLandUse(attrs) {
 
 const LU_PRIORITY = {
   industrial: 9, commercial: 8, urban: 7, infrastructure: 7, urban_soft: 7, forest_reserve: 7, kampung_soft: 7,
-  paddy: 6, oil_palm: 5, rubber: 4, mixed_agri: 3, idle_agri: 2, water: 1, forest: 0, river: 0,
+  paddy: 6, oil_palm: 5, aquaculture: 4, livestock: 4, rubber: 4, mixed_agri: 3, idle_agri: 2, water: 1, forest: 0, river: 0,
 };
 
 function resolveResults(results) {

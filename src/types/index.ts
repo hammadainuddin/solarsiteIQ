@@ -532,6 +532,8 @@ export type LandUseClass =
   | 'oil_palm'
   | 'rubber'
   | 'mixed_agri'
+  | 'livestock'    // animal farming — poultry, cattle, goats, grazing pasture (iPlan Penternakan)
+  | 'aquaculture'  // fish/shrimp ponds (iPlan Akuakultur) — FPV-eligible water surface
   | 'industrial'
   | 'commercial'
   | 'urban'
