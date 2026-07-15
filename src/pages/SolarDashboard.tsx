@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { HexTile } from '../types';
-import { getGoThreshold, getSuitableThreshold, CONDITIONAL_GO_THRESHOLD, GO_CAPACITY_BUDGET_GW, SUITABLE_CAPACITY_BUDGET_GW } from '../utils/solarScoring';
+import { getGoThreshold, getSuitableThreshold, CONDITIONAL_GO_THRESHOLD } from '../utils/solarScoring';
 
 interface Props {
   tiles: HexTile[];
@@ -84,13 +84,13 @@ export default function SolarDashboard({ tiles }: Props) {
           <StatCard
             label="Go Capacity"
             value={formatCapacity(stats.totalGoCapacityMW)}
-            sub={`Prime tier · capped ≤${GO_CAPACITY_BUDGET_GW} GW (MyRER-aligned)`}
+            sub={`Prime tier · composite ≥${stats.goThreshold}`}
             color="text-green-400"
           />
           <StatCard
             label="Suitable Capacity"
             value={formatCapacity(stats.totalSuitableCapacityMW)}
-            sub={`Go + Suitable capped ≤${SUITABLE_CAPACITY_BUDGET_GW} GW cumulative`}
+            sub={`Composite ${stats.suitableThreshold}–${stats.goThreshold - 1}`}
             color="text-lime-400"
           />
           <StatCard
