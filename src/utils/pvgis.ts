@@ -46,7 +46,7 @@ export interface PvgisResult {
 
 import { idbGet, idbSet } from './idbCache';
 
-export const PVGIS_CACHE_KEY    = 'pvgis-grid-v4'; // v4 = filled ~38% missing points (2179->3007 pts) + distance-weighted corner fallback
+export const PVGIS_CACHE_KEY    = 'pvgis-grid-v5'; // v5 = load-time masked-Gaussian smoothing to remove seams (101.0E step, outlier dips)
 const PVGIS_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — irradiance data is very stable
 
 interface PvgisPoint    { lat: number; lng: number; eY: number; hiY: number; pr: number }
@@ -60,10 +60,72 @@ function gridKey(lat: number, lng: number, step: number): string {
   return `${Math.round(lat * scale)}_${Math.round(lng * scale)}`;
 }
 
-function parsePoints(points: PvgisPoint[], step: number): Map<string, PvgisResult> {
+// The raw SARAH-3-derived grid carries visible seams — most notably a step in
+// H(i)_y down the 101.0°E meridian across the whole of Perak, plus isolated
+// single-point dips — that show up on the solar-resource heatmap as hard
+// straight-line colour boundaries rather than the terrain-following gradient
+// real irradiance has. A gentle masked Gaussian smoothing (σ≈1 cell ≈ 5.5 km,
+// 5×5 window) removes the seams and outliers while preserving the genuine
+// west-coast-high / Titiwangsa-highland-low structure. Applied to every field
+// so display (H(i)_y → GHI score) and yield (E_y) stay mutually consistent.
+const SMOOTH_SIGMA = 1.0;
+const SMOOTH_RADIUS = 2;
+
+function buildSmoothedGrid(points: PvgisPoint[], step: number): Map<string, PvgisResult> {
+  if (points.length === 0) return new Map();
+
+  // Index points onto an integer (row,col) lattice.
+  const indexed = points.map((p) => ({ p, i: Math.round(p.lat / step), j: Math.round(p.lng / step) }));
+  let minI = Infinity, maxI = -Infinity, minJ = Infinity, maxJ = -Infinity;
+  for (const { i, j } of indexed) {
+    if (i < minI) minI = i; if (i > maxI) maxI = i;
+    if (j < minJ) minJ = j; if (j > maxJ) maxJ = j;
+  }
+  const H = maxI - minI + 1, W = maxJ - minJ + 1;
+  const eY = new Float32Array(H * W), hiY = new Float32Array(H * W), pr = new Float32Array(H * W);
+  const mask = new Uint8Array(H * W);
+  for (const { p, i, j } of indexed) {
+    const k = (i - minI) * W + (j - minJ);
+    eY[k] = p.eY; hiY[k] = p.hiY; pr[k] = p.pr; mask[k] = 1;
+  }
+
+  // Precompute Gaussian kernel weights.
+  const weights: number[] = [];
+  for (let dy = -SMOOTH_RADIUS; dy <= SMOOTH_RADIUS; dy++)
+    for (let dx = -SMOOTH_RADIUS; dx <= SMOOTH_RADIUS; dx++)
+      weights.push(Math.exp(-(dx * dx + dy * dy) / (2 * SMOOTH_SIGMA * SMOOTH_SIGMA)));
+
+  // Masked convolution — only averages present cells, renormalising by the
+  // weight actually covered so coastline/edge cells aren't dragged toward zero.
+  const smooth = (src: Float32Array): Float32Array => {
+    const out = new Float32Array(src.length);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const idx = y * W + x;
+        if (!mask[idx]) continue;
+        let acc = 0, wsum = 0, wi = 0;
+        for (let dy = -SMOOTH_RADIUS; dy <= SMOOTH_RADIUS; dy++) {
+          const ny = y + dy;
+          for (let dx = -SMOOTH_RADIUS; dx <= SMOOTH_RADIUS; dx++, wi++) {
+            const nx = x + dx;
+            if (ny < 0 || ny >= H || nx < 0 || nx >= W) continue;
+            const nidx = ny * W + nx;
+            if (!mask[nidx]) continue;
+            const w = weights[wi];
+            acc += src[nidx] * w; wsum += w;
+          }
+        }
+        out[idx] = wsum > 0 ? acc / wsum : src[idx];
+      }
+    }
+    return out;
+  };
+
+  const sEY = smooth(eY), sHiY = smooth(hiY), sPr = smooth(pr);
   const map = new Map<string, PvgisResult>();
-  for (const p of points) {
-    map.set(gridKey(p.lat, p.lng, step), { eY: p.eY, perfRatio: p.pr, hiY: p.hiY });
+  for (const { p, i, j } of indexed) {
+    const k = (i - minI) * W + (j - minJ);
+    map.set(gridKey(p.lat, p.lng, step), { eY: sEY[k], perfRatio: sPr[k], hiY: sHiY[k] });
   }
   return map;
 }
@@ -73,7 +135,7 @@ async function loadStaticGrid(): Promise<void> {
   const cached = await idbGet<{ points: PvgisPoint[]; step: number }>(PVGIS_CACHE_KEY);
   if (cached && (Date.now() - cached.fetchedAt) < PVGIS_CACHE_TTL_MS) {
     _pvgisStep = cached.data.step ?? 0.05;
-    _pvgisGrid = parsePoints(cached.data.points, _pvgisStep);
+    _pvgisGrid = buildSmoothedGrid(cached.data.points, _pvgisStep);
     console.info(`PVGIS: ${_pvgisGrid.size} points from IndexedDB (${_pvgisStep}° grid)`);
     return;
   }
@@ -90,7 +152,7 @@ async function loadStaticGrid(): Promise<void> {
     if (!data?.points?.length) { _pvgisGrid = new Map(); return; }
 
     _pvgisStep = data.step ?? 0.05;
-    _pvgisGrid = parsePoints(data.points, _pvgisStep);
+    _pvgisGrid = buildSmoothedGrid(data.points, _pvgisStep);
     // Save parsed points array (not the Map) — IDB serialises plain objects
     await idbSet(PVGIS_CACHE_KEY, { points: data.points, step: _pvgisStep });
     console.info(`PVGIS: loaded ${_pvgisGrid.size} points at ${_pvgisStep}° from CDN, cached to IDB`);
