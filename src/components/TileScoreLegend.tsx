@@ -24,15 +24,19 @@ export default function TileScoreLegend({ activeDimension }: Props) {
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <div className="w-4 h-3 rounded" style={{ background: 'rgba(34,197,94,0.75)' }} />
-          <span className="text-slate-300">Go — ≥70</span>
+          <span className="text-slate-300">Go — prime</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-3 rounded" style={{ background: 'rgba(132,204,22,0.75)' }} />
+          <span className="text-slate-300">Suitable</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-3 rounded" style={{ background: 'rgba(251,191,36,0.75)' }} />
-          <span className="text-slate-300">Conditional — 45–69</span>
+          <span className="text-slate-300">Conditional</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-3 rounded" style={{ background: 'rgba(239,68,68,0.75)' }} />
-          <span className="text-slate-300">Avoid — &lt;45</span>
+          <span className="text-slate-300">Avoid</span>
         </div>
       </div>
     </div>

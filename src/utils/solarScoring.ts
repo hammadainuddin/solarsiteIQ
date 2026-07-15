@@ -111,7 +111,7 @@ export const DIMENSION_WEIGHTS = {
 // changes — it feeds the composed tile-cache key in tilePipeline.ts, so stale
 // pre-scored tiles in IndexedDB are discarded instead of silently served with
 // outdated scores.
-export const SCORING_CONFIG_VERSION = 'scoring-v2';
+export const SCORING_CONFIG_VERSION = 'scoring-v3'; // v3 = Langkawi exclusion + Suitable middle tier
 
 export interface RawScores {
   solar: number;
@@ -148,53 +148,90 @@ export function compositeScore(s: RawScores): number {
 // budget. Selection is therefore ≤ budget by construction, always.
 
 export const GO_CAPACITY_BUDGET_GW = 80;
-// Floor from the original weight/threshold calibration — the bar never drops
-// below this even if the budget would allow it.
+// A second, wider tier sits between Go and Conditional Go: 'Suitable'. It
+// extends the selection until CUMULATIVE capacity (Go + Suitable) reaches this
+// ceiling — targeted at the 100–150 GW band, i.e. up to MyRER's <150 GW
+// peninsula-wide potential. Same budget-calibration approach as Go, just a
+// higher cumulative ceiling.
+export const SUITABLE_CAPACITY_BUDGET_GW = 150;
+// Floors from the original weight/threshold calibration — a bar never drops
+// below its floor even if the budget would allow it.
 export const GO_THRESHOLD_FLOOR = 71;
+export const SUITABLE_THRESHOLD_FLOOR = 55;
 export const CONDITIONAL_GO_THRESHOLD = 45;
 
+export type TileVerdict = 'Go' | 'Suitable' | 'Conditional Go' | 'Avoid';
+
 let _goThreshold = GO_THRESHOLD_FLOOR;
+let _suitableThreshold = SUITABLE_THRESHOLD_FLOOR;
 
 /** Current Go cutoff — calibrated by the tile pipeline; floor until then. */
 export function getGoThreshold(): number {
   return _goThreshold;
 }
 
+/** Current Suitable (middle-tier) cutoff — calibrated by the tile pipeline. */
+export function getSuitableThreshold(): number {
+  return _suitableThreshold;
+}
+
 /**
- * Calibrate the Go threshold so the total capacity of tiles at/above it stays
- * within GO_CAPACITY_BUDGET_GW. Called by the tile pipeline whenever a fresh
- * (or cache-restored) tile set is available.
+ * Calibrate both tier cutoffs against the actual scored tiles so each tier's
+ * cumulative capacity stays within its budget:
+ *   Go        — cumulative ≤ GO_CAPACITY_BUDGET_GW
+ *   Suitable  — cumulative (Go + Suitable) ≤ SUITABLE_CAPACITY_BUDGET_GW
+ * Called by the tile pipeline whenever a fresh (or cache-restored) tile set is
+ * available. Selection is therefore ≤ budget by construction, regardless of how
+ * the input datasets evolve.
  */
-export function calibrateGoThreshold(
+export function calibrateThresholds(
   tiles: ReadonlyArray<{ scores: { composite: number }; attributes: { estimatedCapacityMW: number } }>,
-): number {
+): { goThreshold: number; suitableThreshold: number } {
   // capacityByScore[s] = total MW of tiles whose composite === s
   const capacityByScore = new Array<number>(101).fill(0);
   for (const t of tiles) {
     const s = Math.max(0, Math.min(100, t.scores.composite));
     capacityByScore[s] += t.attributes.estimatedCapacityMW;
   }
-  const budgetMW = GO_CAPACITY_BUDGET_GW * 1000;
+
   let cumulative = 0;
-  let threshold = 101; // nothing qualifies if even score-100 tiles overflow the budget
+
+  // Go tier: walk down from 100, admit bands until the next would exceed budget.
+  const goBudgetMW = GO_CAPACITY_BUDGET_GW * 1000;
+  let goThreshold = 101; // nothing qualifies if even score-100 tiles overflow the budget
   for (let s = 100; s >= GO_THRESHOLD_FLOOR; s--) {
-    if (cumulative + capacityByScore[s] > budgetMW) break;
+    if (cumulative + capacityByScore[s] > goBudgetMW) break;
     cumulative += capacityByScore[s];
-    threshold = s;
+    goThreshold = s;
   }
-  _goThreshold = threshold;
-  console.info(`Go threshold calibrated to ${threshold} (${(cumulative / 1000).toFixed(1)} GW selected, budget ${GO_CAPACITY_BUDGET_GW} GW)`);
-  return threshold;
+
+  // Suitable tier: continue accumulating from just below the Go cutoff, against
+  // the higher cumulative ceiling. Never rises above the Go cutoff, never drops
+  // below its floor.
+  const suitableBudgetMW = SUITABLE_CAPACITY_BUDGET_GW * 1000;
+  let suitableThreshold = goThreshold; // default: no Suitable band if none fits
+  for (let s = goThreshold - 1; s >= SUITABLE_THRESHOLD_FLOOR; s--) {
+    if (cumulative + capacityByScore[s] > suitableBudgetMW) break;
+    cumulative += capacityByScore[s];
+    suitableThreshold = s;
+  }
+
+  _goThreshold = goThreshold;
+  _suitableThreshold = suitableThreshold;
+  console.info(`Thresholds calibrated — Go ≥${goThreshold}, Suitable ≥${suitableThreshold} (cumulative ${(cumulative / 1000).toFixed(1)} GW, budgets ${GO_CAPACITY_BUDGET_GW}/${SUITABLE_CAPACITY_BUDGET_GW} GW)`);
+  return { goThreshold, suitableThreshold };
 }
 
-export function scoreToVerdict(composite: number): 'Go' | 'Conditional Go' | 'Avoid' {
+export function scoreToVerdict(composite: number): TileVerdict {
   if (composite >= _goThreshold) return 'Go';
+  if (composite >= _suitableThreshold) return 'Suitable';
   if (composite >= CONDITIONAL_GO_THRESHOLD) return 'Conditional Go';
   return 'Avoid';
 }
 
 export function scoreToColor(score: number, opacity = 0.65): string {
-  if (score >= _goThreshold) return `rgba(34, 197, 94,  ${opacity})`; // green-500
-  if (score >= CONDITIONAL_GO_THRESHOLD) return `rgba(251, 191, 36, ${opacity})`; // amber-400
-  return                  `rgba(239, 68,  68,  ${opacity})`; // red-500
+  if (score >= _goThreshold) return `rgba(34, 197, 94,  ${opacity})`;   // green-500 — Go
+  if (score >= _suitableThreshold) return `rgba(132, 204, 22, ${opacity})`; // lime-500 — Suitable
+  if (score >= CONDITIONAL_GO_THRESHOLD) return `rgba(251, 191, 36, ${opacity})`; // amber-400 — Conditional
+  return                  `rgba(239, 68,  68,  ${opacity})`; // red-500 — Avoid
 }

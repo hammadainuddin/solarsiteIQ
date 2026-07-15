@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { HexTile } from '../types';
-import { getGoThreshold, CONDITIONAL_GO_THRESHOLD, GO_CAPACITY_BUDGET_GW } from '../utils/solarScoring';
+import { getGoThreshold, getSuitableThreshold, CONDITIONAL_GO_THRESHOLD, GO_CAPACITY_BUDGET_GW, SUITABLE_CAPACITY_BUDGET_GW } from '../utils/solarScoring';
 
 interface Props {
   tiles: HexTile[];
@@ -22,35 +22,42 @@ function formatCapacity(mw: number): string {
 
 export default function SolarDashboard({ tiles }: Props) {
   const stats = useMemo(() => {
-    // Read the budget-calibrated cutoff inside the memo — it's set by the tile
+    // Read the budget-calibrated cutoffs inside the memo — set by the tile
     // pipeline before tiles land in context, so recomputing on [tiles] is safe.
     const goThreshold = getGoThreshold();
-    const go   = tiles.filter((t) => t.scores.composite >= goThreshold);
-    const cond = tiles.filter((t) => t.scores.composite >= CONDITIONAL_GO_THRESHOLD && t.scores.composite < goThreshold);
+    const suitableThreshold = getSuitableThreshold();
+    const go       = tiles.filter((t) => t.scores.composite >= goThreshold);
+    const suitable = tiles.filter((t) => t.scores.composite >= suitableThreshold && t.scores.composite < goThreshold);
+    const cond     = tiles.filter((t) => t.scores.composite >= CONDITIONAL_GO_THRESHOLD && t.scores.composite < suitableThreshold);
 
     // Capacity totals, kept separate by verdict tier — summing across ALL
     // tiles regardless of verdict (including 'Avoid') would badly overstate
     // buildable capacity, since even Avoid-tier cells (e.g. paddy, protected
     // land) can carry non-zero theoretical capacityKWp.
-    const totalGoCapacityMW   = go.reduce((sum, t) => sum + t.attributes.estimatedCapacityMW, 0);
-    const totalCondCapacityMW = cond.reduce((sum, t) => sum + t.attributes.estimatedCapacityMW, 0);
+    const totalGoCapacityMW       = go.reduce((sum, t) => sum + t.attributes.estimatedCapacityMW, 0);
+    const totalSuitableCapacityMW = suitable.reduce((sum, t) => sum + t.attributes.estimatedCapacityMW, 0);
+    const totalCondCapacityMW     = cond.reduce((sum, t) => sum + t.attributes.estimatedCapacityMW, 0);
 
-    const byState: Record<string, { go: number; total: number; avgScore: number; goCapacityMW: number; condCapacityMW: number }> = {};
+    const byState: Record<string, { go: number; total: number; avgScore: number; goCapacityMW: number; suitableCapacityMW: number }> = {};
     for (const t of tiles) {
       const s = t.states[0] ?? 'Unknown';
-      if (!byState[s]) byState[s] = { go: 0, total: 0, avgScore: 0, goCapacityMW: 0, condCapacityMW: 0 };
+      if (!byState[s]) byState[s] = { go: 0, total: 0, avgScore: 0, goCapacityMW: 0, suitableCapacityMW: 0 };
       byState[s].total++;
       byState[s].avgScore += t.scores.composite;
       if (t.scores.composite >= goThreshold) {
         byState[s].go++;
         byState[s].goCapacityMW += t.attributes.estimatedCapacityMW;
-      } else if (t.scores.composite >= CONDITIONAL_GO_THRESHOLD) {
-        byState[s].condCapacityMW += t.attributes.estimatedCapacityMW;
+      } else if (t.scores.composite >= suitableThreshold) {
+        byState[s].suitableCapacityMW += t.attributes.estimatedCapacityMW;
       }
     }
     for (const s of Object.values(byState)) s.avgScore = Math.round(s.avgScore / s.total);
 
-    return { go, cond, totalGoCapacityMW, totalCondCapacityMW, byState, total: tiles.length, goThreshold };
+    return {
+      go, suitable, cond,
+      totalGoCapacityMW, totalSuitableCapacityMW, totalCondCapacityMW,
+      byState, total: tiles.length, goThreshold, suitableThreshold,
+    };
   }, [tiles]);
 
   return (
@@ -63,27 +70,33 @@ export default function SolarDashboard({ tiles }: Props) {
           </p>
         </div>
 
-        {/* KPI cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* KPI cards — cell counts by tier */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Total Area Screened" value={`${stats.total.toLocaleString()} km²`} sub={`${stats.total.toLocaleString()} cells · 1 km² each`} />
           <StatCard label={`Go Cells (≥${stats.goThreshold})`} value={stats.go.length.toLocaleString()} sub={`${stats.go.length.toLocaleString()} km² viable`} color="text-green-400" />
-          <StatCard label={`Conditional (${CONDITIONAL_GO_THRESHOLD}–${stats.goThreshold - 1})`} value={stats.cond.length.toLocaleString()} sub={`${stats.cond.length.toLocaleString()} km²`} color="text-amber-400" />
+          <StatCard label={`Suitable (${stats.suitableThreshold}–${stats.goThreshold - 1})`} value={stats.suitable.length.toLocaleString()} sub={`${stats.suitable.length.toLocaleString()} km²`} color="text-lime-400" />
+          <StatCard label={`Conditional (${CONDITIONAL_GO_THRESHOLD}–${stats.suitableThreshold - 1})`} value={stats.cond.length.toLocaleString()} sub={`${stats.cond.length.toLocaleString()} km²`} color="text-amber-400" />
         </div>
 
-        {/* Capacity cards — Go and Conditional Go shown separately, never combined,
-            since blending them would obscure how much of the total sits in the
-            lower-confidence Conditional tier. */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Capacity cards — each tier shown separately; blending them would
+            obscure how much sits in each confidence band. */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           <StatCard
             label="Go Capacity"
             value={formatCapacity(stats.totalGoCapacityMW)}
-            sub={`Go tiles · budget-capped ≤${GO_CAPACITY_BUDGET_GW} GW (MyRER-aligned)`}
+            sub={`Prime tier · capped ≤${GO_CAPACITY_BUDGET_GW} GW (MyRER-aligned)`}
             color="text-green-400"
+          />
+          <StatCard
+            label="Suitable Capacity"
+            value={formatCapacity(stats.totalSuitableCapacityMW)}
+            sub={`Go + Suitable capped ≤${SUITABLE_CAPACITY_BUDGET_GW} GW cumulative`}
+            color="text-lime-400"
           />
           <StatCard
             label="Conditional Go Capacity"
             value={formatCapacity(stats.totalCondCapacityMW)}
-            sub="Conditional tiles · needs further review"
+            sub="Needs further review"
             color="text-amber-400"
           />
         </div>
@@ -108,8 +121,8 @@ export default function SolarDashboard({ tiles }: Props) {
                 <p className="text-green-400 text-[10px] font-semibold mt-1.5">
                   Go: {formatCapacity(s.goCapacityMW)}
                 </p>
-                <p className="text-amber-400 text-[10px] font-semibold">
-                  Cond: {formatCapacity(s.condCapacityMW)}
+                <p className="text-lime-400 text-[10px] font-semibold">
+                  Suitable: {formatCapacity(s.suitableCapacityMW)}
                 </p>
               </div>
             ))}

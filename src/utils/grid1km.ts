@@ -234,6 +234,24 @@ function isInPaddyZone(lat: number, lng: number): boolean {
   return PADDY_ZONES.some((z) => lat >= z.s && lat <= z.n && lng >= z.w && lng <= z.e);
 }
 
+// ── Infeasibility exclusion zones ─────────────────────────────────────────────
+// Areas where utility-scale (LSS) solar is not realistically developable for
+// reasons OUTSIDE the scored dimensions — so their cells are forced
+// non-developable (isProtected → zero capacity, kept out of Go/Suitable) while
+// still showing their real land use in the tooltip.
+//   Langkawi — duty-free tourism archipelago + UNESCO Global Geopark; land
+//   value, tourism priority and island-grid constraints rule out LSS. The bbox
+//   covers the archipelago only; the nearest mainland (Kuala Perlis/Kuala
+//   Kedah, ~100.1°E+) sits well east of e=99.90, and open-sea cells are already
+//   removed by the state-boundary polygon filter.
+const EXCLUSION_ZONES = [
+  { label: 'Langkawi', s: 6.10, n: 6.50, w: 99.55, e: 99.90 },
+] as const;
+
+export function isInExclusionZone(lat: number, lng: number): boolean {
+  return EXCLUSION_ZONES.some((z) => lat >= z.s && lat <= z.n && lng >= z.w && lng <= z.e);
+}
+
 // ── Determine land use for a cell ─────────────────────────────────────────────
 // Priority:
 //  1. solarZones.ts protected entries (forest reserves, Ramsar sites)
@@ -337,6 +355,13 @@ function buildCell(
   const cLng = +(swLng + GRID_STEP / 2).toFixed(4);
 
   let { landUse, floodRisk, isProtected, wcClass } = getLandUseForCell(cLat, cLng);
+
+  // Infeasibility exclusion (e.g. Langkawi) — force non-developable so the cell
+  // gets zero capacity and stays out of the Go/Suitable tiers, while its real
+  // land use is preserved for the tooltip.
+  if (isInExclusionZone(cLat, cLng)) {
+    isProtected = true;
+  }
 
   // River polygon overlay (ground-truth OSM geometry) — corrects iPlan/OSM/WorldCover
   // point-sampling errors where a cell fully covered by river gets labelled by
