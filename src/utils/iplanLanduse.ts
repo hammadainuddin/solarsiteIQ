@@ -21,7 +21,7 @@
 import type { LandUseClass, RiskLevel } from '../types';
 import { idbGet, idbSet } from './idbCache';
 
-export const IPLAN_CACHE_KEY = 'iplan-grid-v13'; // v13 = split livestock + aquaculture out of mixed_agri
+export const IPLAN_CACHE_KEY = 'iplan-grid-v14'; // v14 = surface kampung hidden under rubber/idle (combined soft-residential vote)
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface GridFile {

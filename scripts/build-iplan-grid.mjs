@@ -199,17 +199,35 @@ function resolveResults(results) {
   // Gazetted forest reserve/mangrove — single-hit veto, same tier as hard urban
   // signals (see the 'forest_reserve' comment in iplanToLandUse above).
   if (valid.includes('forest_reserve')) return 'forest';
+
+  // Residential ('Perumahan') sample points are counted TOGETHER regardless of
+  // whether each is urban_soft (subdivision) or kampung_soft (village). Counting
+  // them separately was a bug: a cell with 1 urban_soft + 1 kampung_soft has 2 of
+  // 3 residential points but neither sub-count reached 2, so an agricultural
+  // point won and real settlements got hidden under 'rubber'/'idle_agri'
+  // (observed in Penang & Taiping). Sub-type (urban vs kampung) is decided by
+  // whichever residential flavour dominates.
   const urbanSoftCount = valid.filter((v) => v === 'urban_soft').length;
-  if (urbanSoftCount >= 2) return 'urban';
   const kampungSoftCount = valid.filter((v) => v === 'kampung_soft').length;
-  if (kampungSoftCount >= 2) return 'kampung';
+  const softCount = urbanSoftCount + kampungSoftCount;
+  const softClass = urbanSoftCount > kampungSoftCount ? 'urban' : 'kampung';
+  if (softCount >= 2) return softClass;
+
   const rest = valid.filter((v) => v !== 'urban_soft' && v !== 'forest_reserve' && v !== 'kampung_soft');
   if (rest.length > 0) {
-    return rest.reduce((best, lu) => (LU_PRIORITY[lu] ?? -1) > (LU_PRIORITY[best] ?? -1) ? lu : best);
+    const best = rest.reduce((b, lu) => (LU_PRIORITY[lu] ?? -1) > (LU_PRIORITY[b] ?? -1) ? lu : b);
+    // A single residential point interspersed with LOW-intensity agriculture
+    // (rubber / idle / mixed smallholdings) marks a kampung among the plots —
+    // surface it as 'kampung' instead of hiding the households under the crop
+    // label. Paddy and managed estate crops (oil_palm) are left as-is: a lone
+    // roadside house shouldn't flip a food-security field or plantation estate.
+    if (softCount === 1 && (best === 'rubber' || best === 'idle_agri' || best === 'mixed_agri')) {
+      return 'kampung';
+    }
+    return best;
   }
-  // Only signal(s) across all 3 points were a single soft-residential hit each —
-  // no majority reached either way, but still the only evidence available.
-  return valid.includes('kampung_soft') ? 'kampung' : 'urban';
+  // All points were residential (soft) — no agri competition.
+  return softClass;
 }
 
 function toIplanAttrs(raw) {
