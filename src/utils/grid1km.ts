@@ -279,6 +279,23 @@ function getLandUseForCell(
   // 2. iPlan direct sample data (official Malaysian government land use data)
   const iplan = getIplanLanduseAt(cLat, cLng);
   if (iplan) {
+    // Settlement override: iPlan's 3-point sampling can miss a village that sits
+    // inside an otherwise rubber/idle/mixed cell (the same problem the
+    // build-iplan-grid.mjs resolver fixes for cells iPlan DID sample as
+    // residential — this catches the ones it didn't). If OSM has a ground-truth
+    // settlement signal here (place=village/town/city node, or a
+    // residential/commercial landuse polygon) and iPlan only saw low-intensity
+    // agriculture, trust OSM's settlement over the crop label. Restricted to
+    // low-intensity agri so it never overrides iPlan paddy, oil_palm, forest,
+    // water, etc.
+    const LOW_INTENSITY_AGRI = new Set<LandUseClass>(['rubber', 'idle_agri', 'mixed_agri']);
+    if (LOW_INTENSITY_AGRI.has(iplan.landUse)) {
+      const osmHere = getOsmLanduseAt(cLat, cLng);
+      if (osmHere && (osmHere.landUse === 'kampung' || osmHere.landUse === 'urban'
+                   || osmHere.landUse === 'commercial' || osmHere.landUse === 'industrial')) {
+        return { landUse: osmHere.landUse, floodRisk: osmHere.floodRisk, isProtected: osmHere.isProtected, wcClass: 0 };
+      }
+    }
     return { landUse: iplan.landUse, floodRisk: iplan.floodRisk, isProtected: iplan.isProtected, wcClass: 0 };
   }
 

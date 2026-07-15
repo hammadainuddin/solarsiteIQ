@@ -113,7 +113,7 @@ export const DIMENSION_WEIGHTS = {
 // changes — it feeds the composed tile-cache key in tilePipeline.ts, so stale
 // pre-scored tiles in IndexedDB are discarded instead of silently served with
 // outdated scores.
-export const SCORING_CONFIG_VERSION = 'scoring-v5'; // v5 = fixed tier thresholds (Go≥75, Suitable≥70, Conditional≥60)
+export const SCORING_CONFIG_VERSION = 'scoring-v6'; // v6 = OSM settlement override for iPlan low-intensity-agri cells
 
 export interface RawScores {
   solar: number;
