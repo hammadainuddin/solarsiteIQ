@@ -68,10 +68,12 @@ function GlowPolyline({ line }: { line: TransmissionLine }) {
 
   return (
     <>
-      {/* Outer halo — non-interactive, never blocks clicks on hex tiles */}
+      {/* Outer halo — non-interactive, never blocks clicks on hex tiles.
+          Rendered in linesPane so it sits ABOVE the hex scoring-grid overlay. */}
       <Polyline
         positions={coords}
         interactive={false}
+        pane="linesPane"
         pathOptions={{
           color,
           weight: w.glow,
@@ -83,6 +85,7 @@ function GlowPolyline({ line }: { line: TransmissionLine }) {
       {/* Inner bright core — carries tooltip */}
       <Polyline
         positions={coords}
+        pane="linesPane"
         pathOptions={{
           color,
           weight: w.core,
@@ -404,6 +407,11 @@ export default function SolarMapView() {
               maxZoom={19}
             />
           )}
+
+          {/* Transmission lines pane — z-index 500, above the hex scoring-grid
+              image overlay (zIndex 410) so lines draw in FRONT of the grid,
+              but below substation markers (600) and labels (650). */}
+          <Pane name="linesPane" style={{ zIndex: 500 }} />
 
           {/* Labels pane at z-index 650 — above overlayPane (400) + markerPane (600), no pointer events */}
           <Pane name="labelsPane" style={{ zIndex: 650, pointerEvents: 'none' }}>
