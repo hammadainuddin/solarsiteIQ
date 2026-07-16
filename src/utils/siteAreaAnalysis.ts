@@ -5,12 +5,19 @@
 
 import type { HexTile } from '../types';
 import { getGoThreshold, CONDITIONAL_GO_THRESHOLD } from './solarScoring';
+import { GRID_STEP, GRID_BBOX } from './grid1km';
 
 export interface SiteAreaResult {
   drawnAreaKm2: number;
-  cellsInside: HexTile[];
-  suitableCells: HexTile[];   // composite ≥ CONDITIONAL_GO_THRESHOLD
-  goCells: HexTile[];         // composite ≥ GO_THRESHOLD
+  cellsInside: HexTile[];     // tiles the polygon overlaps (fraction > 0)
+  suitableCells: HexTile[];   // overlapped tiles with composite ≥ CONDITIONAL_GO_THRESHOLD
+  goCells: HexTile[];         // overlapped tiles with composite ≥ GO_THRESHOLD
+  // Area-weighted coverage (km²) — the fraction of each overlapped cell that
+  // actually falls inside the polygon, summed. Correct for polygons both larger
+  // and smaller than the 1 km grid (a sub-cell polygon still reports its slice).
+  coveredAreaKm2: number;
+  suitableAreaKm2: number;
+  goAreaKm2: number;
   totalCapacityMWp: number;
   groundMountMWp: number;
   fpvMWp: number;
@@ -69,7 +76,7 @@ export function analyzeArea(
 ): SiteAreaResult {
   const drawnAreaKm2 = shoelaceAreaKm2(ring);
 
-  // Pre-compute bbox for fast exclusion
+  // Polygon bbox
   let bboxS = Infinity, bboxN = -Infinity, bboxW = Infinity, bboxE = -Infinity;
   for (const [lat, lng] of ring) {
     if (lat < bboxS) bboxS = lat;
@@ -78,59 +85,97 @@ export function analyzeArea(
     if (lng > bboxE) bboxE = lng;
   }
 
+  // Index tiles by integer grid cell so a sample point can find its cell in O(1).
+  const cellIdx = (lat: number, lng: number) =>
+    `${Math.floor((lat - GRID_BBOX.south) / GRID_STEP)}_${Math.floor((lng - GRID_BBOX.west) / GRID_STEP)}`;
+  const tileByCell = new Map<string, HexTile>();
+  for (const t of tiles) tileByCell.set(cellIdx(t.centerLat, t.centerLng), t);
+
+  // Rasterise the polygon at sub-cell resolution and tally, per overlapped cell,
+  // how much of it falls inside. This replaces the old "cell centre inside
+  // polygon" test, which returned nothing for polygons smaller than a 1 km cell
+  // (no centre landed inside) — the cause of the all-zero result.
+  const SUB = 5;                       // 5×5 sub-samples per 1 km cell (~200 m)
+  const subStep = GRID_STEP / SUB;
+  const samplesPerCell = SUB * SUB;
+  const perCellSamples = new Map<string, number>();
+  for (let lat = bboxS + subStep / 2; lat <= bboxN; lat += subStep) {
+    for (let lng = bboxW + subStep / 2; lng <= bboxE; lng += subStep) {
+      if (!pointInRing(lat, lng, ring)) continue;
+      const key = cellIdx(lat, lng);
+      perCellSamples.set(key, (perCellSamples.get(key) ?? 0) + 1);
+    }
+  }
+  // Fallback for a polygon so small it slips between sub-samples: attribute its
+  // shoelace area to the cell containing its centroid, so a tiny site still
+  // reports its slice instead of nothing.
+  if (perCellSamples.size === 0 && drawnAreaKm2 > 0) {
+    const cLatMid = ring.reduce((s, v) => s + v[0], 0) / ring.length;
+    const cLngMid = ring.reduce((s, v) => s + v[1], 0) / ring.length;
+    const frac = Math.min(samplesPerCell, Math.max(1, Math.round(drawnAreaKm2 * samplesPerCell)));
+    perCellSamples.set(cellIdx(cLatMid, cLngMid), frac);
+  }
+
   const cellsInside: HexTile[] = [];
-  for (const tile of tiles) {
-    const { centerLat: lat, centerLng: lng } = tile;
-    if (lat < bboxS || lat > bboxN || lng < bboxW || lng > bboxE) continue;
-    if (pointInRing(lat, lng, ring)) cellsInside.push(tile);
+  const fractionByTile = new Map<HexTile, number>();
+  for (const [key, samples] of perCellSamples) {
+    const tile = tileByCell.get(key);
+    if (!tile) continue; // sample fell on an untiled cell (outside state land polygon)
+    const fraction = Math.min(1, samples / samplesPerCell);
+    cellsInside.push(tile);
+    fractionByTile.set(tile, fraction);
   }
 
   const suitableCells = cellsInside.filter((t) => t.scores.composite >= CONDITIONAL_GO_THRESHOLD);
   const goCells       = cellsInside.filter((t) => t.scores.composite >= getGoThreshold());
 
-  // Capacity totals
-  let groundMountKWp = 0, fpvKWp = 0, rooftopKWp = 0;
-  let totalYieldMWh = 0, sumEy = 0, sumScore = 0, sumGridDist = 0;
+  // Area-weighted coverage (each full 1 km cell = 1 km²)
+  const sumFrac = (arr: HexTile[]) => arr.reduce((s, t) => s + (fractionByTile.get(t) ?? 0), 0);
+  const coveredAreaKm2  = sumFrac(cellsInside);
+  const suitableAreaKm2 = sumFrac(suitableCells);
+  const goAreaKm2       = sumFrac(goCells);
 
-  const luMap = new Map<string, { count: number; capacityKWp: number }>();
+  // Capacity/yield totals, each cell weighted by its overlap fraction.
+  let groundMountKWp = 0, fpvKWp = 0, rooftopKWp = 0;
+  let totalYieldMWh = 0, wSumEy = 0, wSumScore = 0, wSumGridDist = 0;
+  const luMap = new Map<string, { areaKm2: number; capacityKWp: number }>();
 
   for (const t of cellsInside) {
+    const f = fractionByTile.get(t) ?? 0;
     const lu = t.attributes.landUse;
-    const cap = t.attributes.capacityKWp;
+    const cap = t.attributes.capacityKWp * f;
 
     if (GROUND_MOUNT_TYPES.has(lu)) groundMountKWp += cap;
     else if (FPV_TYPES.has(lu))     fpvKWp         += cap;
     else if (ROOFTOP_TYPES.has(lu)) rooftopKWp     += cap;
 
-    totalYieldMWh += t.attributes.annualYieldMWh;
-    sumEy         += t.attributes.pvgisEyKWhPerKWp;
-    sumScore      += t.scores.composite;
-    sumGridDist   += t.attributes.distToGridKm;
+    totalYieldMWh += t.attributes.annualYieldMWh * f;
+    wSumEy        += t.attributes.pvgisEyKWhPerKWp * f;
+    wSumScore     += t.scores.composite * f;
+    wSumGridDist  += t.attributes.distToGridKm * f;
 
-    const entry = luMap.get(lu) ?? { count: 0, capacityKWp: 0 };
-    entry.count++;
+    const entry = luMap.get(lu) ?? { areaKm2: 0, capacityKWp: 0 };
+    entry.areaKm2 += f;
     entry.capacityKWp += cap;
     luMap.set(lu, entry);
   }
 
-  const n = cellsInside.length || 1;
+  const wTot = coveredAreaKm2 || 1; // fraction-weighted denominator
   const totalCapacityKWp = groundMountKWp + fpvKWp + rooftopKWp;
   const totalCapacityMWp = totalCapacityKWp / 1_000;
   const totalYieldGWh    = totalYieldMWh / 1_000;
-  const avgScore         = Math.round(sumScore / n);
-  const avgGridDistKm    = Math.round(sumGridDist / n * 10) / 10;
-  const avgEy            = Math.round(sumEy / n);
+  const avgScore         = Math.round(wSumScore / wTot);
+  const avgGridDistKm    = Math.round(wSumGridDist / wTot * 10) / 10;
+  const avgEy            = Math.round(wSumEy / wTot);
 
-  // Capacity factor: yield / (capacity × 8760h) × 100
   const avgCF = totalCapacityKWp > 0
     ? (totalYieldMWh / (totalCapacityKWp * 8.76)) * 100
     : 0;
 
-  // Land use breakdown sorted by capacity descending
   const landUseBreakdown = Array.from(luMap.entries())
-    .map(([landUse, { count, capacityKWp }]) => ({
+    .map(([landUse, { areaKm2, capacityKWp }]) => ({
       landUse,
-      count,
+      count: Math.round(areaKm2 * 10) / 10, // km² (kept as `count` for interface compatibility)
       capacityMWp: Math.round(capacityKWp / 1_000 * 10) / 10,
     }))
     .sort((a, b) => b.capacityMWp - a.capacityMWp);
@@ -138,10 +183,10 @@ export function analyzeArea(
   // Top constraint heuristic
   let topConstraint: string;
   if (cellsInside.length === 0) {
-    topConstraint = 'No grid cells in drawn area';
+    topConstraint = 'Drawn area is over water / unclassified land — no developable grid cells';
   } else if (avgGridDistKm > 25) {
     topConstraint = `Grid distance (avg ${avgGridDistKm} km to nearest line)`;
-  } else if (goCells.length === 0 && cellsInside.length > 0) {
+  } else if (goCells.length === 0) {
     topConstraint = 'Low composite score — check land/flood/grid constraints';
   } else {
     const topLu = landUseBreakdown[0]?.landUse ?? '';
@@ -152,15 +197,18 @@ export function analyzeArea(
   }
 
   return {
-    drawnAreaKm2: Math.round(drawnAreaKm2 * 10) / 10,
+    drawnAreaKm2: Math.round(drawnAreaKm2 * 100) / 100,
     cellsInside,
     suitableCells,
     goCells,
+    coveredAreaKm2:  Math.round(coveredAreaKm2 * 100) / 100,
+    suitableAreaKm2: Math.round(suitableAreaKm2 * 100) / 100,
+    goAreaKm2:       Math.round(goAreaKm2 * 100) / 100,
     totalCapacityMWp: Math.round(totalCapacityMWp * 10) / 10,
     groundMountMWp:   Math.round(groundMountKWp  / 1_000 * 10) / 10,
     fpvMWp:           Math.round(fpvKWp          / 1_000 * 10) / 10,
     rooftopMWp:       Math.round(rooftopKWp      / 1_000 * 10) / 10,
-    totalYieldGWhPerYear: Math.round(totalYieldGWh * 10) / 10,
+    totalYieldGWhPerYear: Math.round(totalYieldGWh * 100) / 100,
     avgCapacityFactor:    Math.round(avgCF * 10) / 10,
     avgPvgisEyKWhPerKWp: avgEy,
     avgScore,

@@ -2,6 +2,7 @@
 // Anchored to the bottom-left of the map, above the zoom controls.
 
 import type { SiteAreaResult } from '../utils/siteAreaAnalysis';
+import { getGoThreshold, CONDITIONAL_GO_THRESHOLD } from '../utils/solarScoring';
 
 interface Props {
   result: SiteAreaResult;
@@ -79,11 +80,14 @@ function downloadCsv(result: SiteAreaResult) {
 }
 
 export default function SiteAreaInfoBox({ result, onClose }: Props) {
-  const { drawnAreaKm2, cellsInside, suitableCells, goCells } = result;
-  const total = cellsInside.length || 1;
+  const { drawnAreaKm2, coveredAreaKm2, suitableAreaKm2, goAreaKm2 } = result;
+  const goThreshold = getGoThreshold();
+  const conditionalThreshold = CONDITIONAL_GO_THRESHOLD;
+  const total = coveredAreaKm2 || 1;
 
-  const suitablePct = Math.round((suitableCells.length / total) * 100);
-  const goPct       = Math.round((goCells.length       / total) * 100);
+  const suitablePct = Math.round((suitableAreaKm2 / total) * 100);
+  const goPct       = Math.round((goAreaKm2       / total) * 100);
+  const fmt = (v: number) => (v < 1 ? v.toFixed(2) : v.toFixed(1));
 
   return (
     <div className="absolute bottom-8 left-3 z-[2000] w-64 bg-slate-950 border border-slate-600 rounded-xl shadow-2xl ring-1 ring-black/40 overflow-hidden">
@@ -101,10 +105,10 @@ export default function SiteAreaInfoBox({ result, onClose }: Props) {
       <div className="p-3 space-y-3 max-h-[70vh] overflow-y-auto">
         {/* Area summary */}
         <Section title="Coverage">
-          <Row label="Drawn area"     value={`${drawnAreaKm2} km²`} />
-          <Row label="Cells inside"   value={`${cellsInside.length} km²`} />
-          <Row label="Suitable (≥45)" value={`${suitableCells.length} km² · ${suitablePct}%`} accent />
-          <Row label="Go (≥70)"       value={`${goCells.length} km² · ${goPct}%`} accent />
+          <Row label="Drawn area"     value={`${fmt(drawnAreaKm2)} km²`} />
+          <Row label="Developable"    value={`${fmt(coveredAreaKm2)} km²`} />
+          <Row label={`Suitable (≥${conditionalThreshold})`} value={`${fmt(suitableAreaKm2)} km² · ${suitablePct}%`} accent />
+          <Row label={`Go (≥${goThreshold})`}       value={`${fmt(goAreaKm2)} km² · ${goPct}%`} accent />
         </Section>
 
         <div className="border-t border-slate-700/60" />
