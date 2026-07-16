@@ -6,6 +6,7 @@
 import type { HexTile } from '../types';
 import { getGoThreshold, CONDITIONAL_GO_THRESHOLD } from './solarScoring';
 import { GRID_STEP, GRID_BBOX } from './grid1km';
+import { SOLAR_DENSITY_KWP_PER_KM2 } from './pvgis';
 
 export interface SiteAreaResult {
   drawnAreaKm2: number;
@@ -31,9 +32,6 @@ export interface SiteAreaResult {
   topConstraint: string;
 }
 
-const GROUND_MOUNT_TYPES = new Set(['idle_agri', 'rubber', 'mixed_agri', 'oil_palm', 'paddy', 'livestock']);
-const FPV_TYPES           = new Set(['water', 'aquaculture']); // aquaculture ponds host floating PV
-const ROOFTOP_TYPES       = new Set(['industrial', 'commercial']);
 
 // ── Shoelace area (degrees → km²) ────────────────────────────────────────────
 
@@ -131,11 +129,18 @@ export function analyzeArea(
 
   // Area-weighted coverage (each full 1 km cell = 1 km²)
   const sumFrac = (arr: HexTile[]) => arr.reduce((s, t) => s + (fractionByTile.get(t) ?? 0), 0);
-  const coveredAreaKm2  = sumFrac(cellsInside);
+  let   coveredAreaKm2  = sumFrac(cellsInside);
   const suitableAreaKm2 = sumFrac(suitableCells);
   const goAreaKm2       = sumFrac(goCells);
 
-  // Capacity/yield totals, each cell weighted by its overlap fraction.
+  // Capacity/yield totals. The drawn polygon represents an INTENDED solar-farm
+  // footprint, so capacity is computed from area × the standard ground-mount
+  // density — independent of the cell's current land use, protected status or
+  // composite score. (The tile's own capacityKWp is land-use-derived and is 0
+  // for forest/river/protected/water; using it made a plot drawn over such land
+  // report 0 MWp, which the site tool should never do.) Generation uses each
+  // cell's real PVGIS specific yield. Land use still drives the informational
+  // breakdown and the suitability tiers below — just not the headline capacity.
   let groundMountKWp = 0, fpvKWp = 0, rooftopKWp = 0;
   let totalYieldMWh = 0, wSumEy = 0, wSumScore = 0, wSumGridDist = 0;
   const luMap = new Map<string, { areaKm2: number; capacityKWp: number }>();
@@ -143,14 +148,14 @@ export function analyzeArea(
   for (const t of cellsInside) {
     const f = fractionByTile.get(t) ?? 0;
     const lu = t.attributes.landUse;
-    const cap = t.attributes.capacityKWp * f;
+    const cap = SOLAR_DENSITY_KWP_PER_KM2 * f;      // full ground-mount density × covered area
+    const ey  = t.attributes.pvgisEyKWhPerKWp || 1400; // kWh/kWp/yr (regional fallback)
 
-    if (GROUND_MOUNT_TYPES.has(lu)) groundMountKWp += cap;
-    else if (FPV_TYPES.has(lu))     fpvKWp         += cap;
-    else if (ROOFTOP_TYPES.has(lu)) rooftopKWp     += cap;
+    // Drawn plot is treated as ground-mount development.
+    groundMountKWp += cap;
 
-    totalYieldMWh += t.attributes.annualYieldMWh * f;
-    wSumEy        += t.attributes.pvgisEyKWhPerKWp * f;
+    totalYieldMWh += (cap * ey) / 1000;             // kWp × kWh/kWp/yr ÷ 1000 = MWh/yr
+    wSumEy        += ey * f;
     wSumScore     += t.scores.composite * f;
     wSumGridDist  += t.attributes.distToGridKm * f;
 
@@ -160,13 +165,23 @@ export function analyzeArea(
     luMap.set(lu, entry);
   }
 
+  // Polygon overlapped no tiled cells (e.g. drawn wholly over a water body that
+  // is excluded from the grid): still report development potential from the
+  // drawn area and a regional specific yield, so the tool never returns 0.
+  const REGIONAL_EY = 1400; // kWh/kWp/yr — northern-MY ground-mount typical
+  if (groundMountKWp === 0 && drawnAreaKm2 > 0) {
+    groundMountKWp = drawnAreaKm2 * SOLAR_DENSITY_KWP_PER_KM2;
+    totalYieldMWh  = (groundMountKWp * REGIONAL_EY) / 1000;
+    coveredAreaKm2 = drawnAreaKm2; // keep the "Developable km²" row consistent with capacity
+  }
+
   const wTot = coveredAreaKm2 || 1; // fraction-weighted denominator
   const totalCapacityKWp = groundMountKWp + fpvKWp + rooftopKWp;
   const totalCapacityMWp = totalCapacityKWp / 1_000;
   const totalYieldGWh    = totalYieldMWh / 1_000;
   const avgScore         = Math.round(wSumScore / wTot);
   const avgGridDistKm    = Math.round(wSumGridDist / wTot * 10) / 10;
-  const avgEy            = Math.round(wSumEy / wTot);
+  const avgEy            = Math.round(wSumEy / wTot) || REGIONAL_EY;
 
   const avgCF = totalCapacityKWp > 0
     ? (totalYieldMWh / (totalCapacityKWp * 8.76)) * 100
@@ -183,7 +198,7 @@ export function analyzeArea(
   // Top constraint heuristic
   let topConstraint: string;
   if (cellsInside.length === 0) {
-    topConstraint = 'Drawn area is over water / unclassified land — no developable grid cells';
+    topConstraint = 'Over water / unclassified land — capacity shown is an area-based estimate';
   } else if (avgGridDistKm > 25) {
     topConstraint = `Grid distance (avg ${avgGridDistKm} km to nearest line)`;
   } else if (goCells.length === 0) {
