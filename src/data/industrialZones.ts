@@ -309,7 +309,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Silver Valley Technology Park (SVTP)',
     type: 'tech_park',
     state: 'Perak',
-    lat: 4.670, lng: 101.074,
+    lat: 4.7402, lng: 101.0958,  // coord corrected (OSM Nominatim) — was ~8 km south near Meru, real park is at Kanthan
     areaHa: 1093,
     keyTenants: 'Advanced manufacturing, digital economy, pharmaceuticals, mineral processing',
     notes: 'NCER-designated technology park at Kanthan, Kinta District; ~2,700 acres (Phase 1: 816 acres) for advanced manufacturing and digital economy industries near Bandar Meru Raya.',
