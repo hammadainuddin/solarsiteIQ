@@ -96,7 +96,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Sungai Petani Industrial Estate',
     type: 'industrial_estate',
     state: 'Kedah',
-    lat: 5.648, lng: 100.492,
+    lat: 5.6736, lng: 100.499,  // snapped to SP industrial estate (OSM landuse=industrial)
     areaHa: 350,
     keyTenants: 'E&E, plastics, food processing',
     notes: 'Main industrial zone in Kedah\'s second city.',
@@ -216,7 +216,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Meru Industrial Park',
     type: 'industrial_estate',
     state: 'Perak',
-    lat: 4.6688, lng: 101.0794,  // coord corrected (OSM Nominatim) — was in plantation/forest
+    lat: 4.6527, lng: 101.072,  // snapped to Carsem factory, Meru (OSM landuse=industrial)
     areaHa: 310,
     keyTenants: 'Metal fabrication, plastics, logistics',
     notes: 'Major Ipoh peripheral industrial zone; well-connected via PLUS highway.',
@@ -235,7 +235,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Taiping Industrial Estate',
     type: 'industrial_estate',
     state: 'Perak',
-    lat: 4.857, lng: 100.735,
+    lat: 4.8427, lng: 100.7261,  // snapped to Kaw. Perindustrian Kampung Boyan (OSM)
     areaHa: 220,
     notes: 'Mixed manufacturing in northern Perak near Taiping town.',
   },
@@ -244,7 +244,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Teluk Intan Industrial Area',
     type: 'industrial_estate',
     state: 'Perak',
-    lat: 4.0232, lng: 101.0262,  // coord corrected (OSM Nominatim) — was in plantation/forest
+    lat: 3.9941, lng: 101.0081,  // snapped to Taman Perindustrian Anson, Teluk Intan (OSM)
     areaHa: 170,
     notes: 'Industrial zone in southern Perak serving the Hilir Perak district.',
   },
@@ -273,7 +273,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Kampar Industrial Park',
     type: 'industrial_estate',
     state: 'Perak',
-    lat: 4.304, lng: 101.149,
+    lat: 4.2883, lng: 101.1522,  // snapped to Kampar industrial land (OSM landuse=industrial)
     areaHa: 140,
     notes: 'Small-to-medium industry near UTAR Kampar campus corridor.',
   },
@@ -291,7 +291,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Bidor Industrial Area',
     type: 'industrial_estate',
     state: 'Perak',
-    lat: 4.1139, lng: 101.2884,  // coord corrected (OSM Nominatim) — was in plantation/forest
+    lat: 4.0938, lng: 101.2776,  // snapped to Bidor industrial land (OSM landuse=industrial)
     areaHa: 110,
     notes: 'Small industrial zone serving southern Perak agriculture/logistics.',
   },
