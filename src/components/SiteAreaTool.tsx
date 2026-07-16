@@ -4,7 +4,7 @@
 // Integrates with react-leaflet via useMapEvents — no new npm packages.
 
 import { useState, useCallback } from 'react';
-import { useMapEvents, CircleMarker, Polyline, Polygon } from 'react-leaflet';
+import { useMap, useMapEvents, CircleMarker, Polyline, Polygon } from 'react-leaflet';
 import type { HexTile } from '../types';
 import { analyzeArea, shoelaceAreaKm2 } from '../utils/siteAreaAnalysis';
 import SiteAreaInfoBox from './SiteAreaInfoBox';
@@ -16,16 +16,12 @@ interface Props {
   onDrawModeChange: (active: boolean) => void;
 }
 
-const CLOSE_THRESHOLD_DEG = 0.008; // ~1 km — snap radius to close polygon
-
-function isNearFirst(
-  vertex: [number, number],
-  first: [number, number],
-): boolean {
-  const dLat = vertex[0] - first[0];
-  const dLng = vertex[1] - first[1];
-  return Math.sqrt(dLat * dLat + dLng * dLng) < CLOSE_THRESHOLD_DEG;
-}
+// Snap radius to close the polygon, measured in SCREEN PIXELS (not geographic
+// distance) so it behaves the same at every zoom level. A fixed geographic
+// threshold auto-closed prematurely when zoomed in — a whole small polygon can
+// sit within ~1 km of its first vertex, so the 3rd click always landed "near"
+// the first and sealed the shape by itself.
+const CLOSE_THRESHOLD_PX = 16;
 
 // ── Map event consumer ────────────────────────────────────────────────────────
 
@@ -40,15 +36,23 @@ function DrawEventHandler({
   onAddVertex: (v: [number, number]) => void;
   onClose: () => void;
 }) {
+  const map = useMap();
   useMapEvents({
     click(e) {
       if (!drawMode) return;
       const v: [number, number] = [e.latlng.lat, e.latlng.lng];
-      if (vertices.length >= 3 && isNearFirst(v, vertices[0])) {
-        onClose();
-      } else {
-        onAddVertex(v);
+      // Close only when the click lands within CLOSE_THRESHOLD_PX screen pixels
+      // of the first vertex (and there are already ≥3 vertices).
+      if (vertices.length >= 3) {
+        const clickPt = map.latLngToContainerPoint(e.latlng);
+        const firstPt = map.latLngToContainerPoint(vertices[0]);
+        if (clickPt.distanceTo(firstPt) < CLOSE_THRESHOLD_PX) {
+          onClose();
+          e.originalEvent.stopPropagation();
+          return;
+        }
       }
+      onAddVertex(v);
       e.originalEvent.stopPropagation();
     },
   });
