@@ -35,7 +35,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Penang Science Park',
     type: 'tech_park',
     state: 'Penang',
-    lat: 5.290, lng: 100.283,
+    lat: 5.2928, lng: 100.4401,  // coord corrected (OSM Nominatim) — real PSP is mainland (Seberang Perai), was on the island in the Bayan Lepas FIZ area
     areaHa: 81,
     keyTenants: 'R&D and advanced manufacturing SMEs',
     notes: 'Phase 1 & 2 fully developed; hi-tech and knowledge-based industries.',
