@@ -86,7 +86,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Kulim Hi-Tech Park (KHTP)',
     type: 'tech_park',
     state: 'Kedah',
-    lat: 5.388, lng: 100.568,
+    lat: 5.4313, lng: 100.5709,  // coord corrected (OSM Nominatim) — was in plantation/forest
     areaHa: 1481,
     keyTenants: 'Siltronic, Osram, First Solar, X-Fab, Globetronics',
     notes: 'Malaysia\'s premier high-tech industrial park; wafer fab and solar module manufacturing.',
@@ -115,7 +115,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Gurun Industrial Park',
     type: 'industrial_estate',
     state: 'Kedah',
-    lat: 5.819, lng: 100.459,
+    lat: 5.8280, lng: 100.4939,  // coord corrected (OSM Nominatim) — was in plantation/forest
     areaHa: 180,
     notes: 'Light and medium industry along the north-south corridor.',
   },
@@ -133,7 +133,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Kuala Ketil Industrial Estate',
     type: 'industrial_estate',
     state: 'Kedah',
-    lat: 5.629, lng: 100.620,
+    lat: 5.6058, lng: 100.6412,  // coord corrected (OSM Nominatim) — was in plantation/forest
     areaHa: 150,
     notes: 'Industrial zone near Baling road corridor.',
   },
@@ -144,7 +144,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Kedah Rubber City (KRC)',
     type: 'industrial_estate',
     state: 'Kedah',
-    lat: 6.268, lng: 100.660,
+    lat: 6.3330, lng: 100.6692,  // coord corrected (OSM Nominatim) — was in plantation/forest
     areaHa: 503,
     keyTenants: 'Latex processing, tyres, automotive rubber products, biotechnology',
     notes: 'NCER-designated rubber eco-industrial park in Padang Terap district; ~1,244 acres for rubber downstream and biotech industries.',
@@ -166,7 +166,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Chuping Valley Industrial Area (CVIA)',
     type: 'special_economic_zone',
     state: 'Perlis',
-    lat: 6.504, lng: 100.338,
+    lat: 6.6035, lng: 100.2867,  // coord corrected (OSM Nominatim) — was in plantation/forest
     areaHa: 1005,
     keyTenants: 'Green industries, halal manufacturing, EV components, renewable energy',
     notes: 'NCER-designated premium border-town technology park at Felda Chuping; ~2,482 acres focused on green, halal and high-tech industries near the Thai border.',
@@ -206,7 +206,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Chemor Industrial Estate',
     type: 'industrial_estate',
     state: 'Perak',
-    lat: 4.696, lng: 101.063,
+    lat: 4.7195, lng: 101.1210,  // coord corrected (OSM Nominatim) — was in plantation/forest
     areaHa: 260,
     keyTenants: 'Ceramics, building materials, light manufacturing',
     notes: 'Industrial zone north of Ipoh along Kinta Valley.',
@@ -216,7 +216,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Meru Industrial Park',
     type: 'industrial_estate',
     state: 'Perak',
-    lat: 4.615, lng: 101.026,
+    lat: 4.6688, lng: 101.0794,  // coord corrected (OSM Nominatim) — was in plantation/forest
     areaHa: 310,
     keyTenants: 'Metal fabrication, plastics, logistics',
     notes: 'Major Ipoh peripheral industrial zone; well-connected via PLUS highway.',
@@ -244,7 +244,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Teluk Intan Industrial Area',
     type: 'industrial_estate',
     state: 'Perak',
-    lat: 3.971, lng: 101.017,
+    lat: 4.0232, lng: 101.0262,  // coord corrected (OSM Nominatim) — was in plantation/forest
     areaHa: 170,
     notes: 'Industrial zone in southern Perak serving the Hilir Perak district.',
   },
@@ -291,7 +291,7 @@ export const INDUSTRIAL_ZONES: IndustrialZone[] = [
     name: 'Bidor Industrial Area',
     type: 'industrial_estate',
     state: 'Perak',
-    lat: 4.080, lng: 101.285,
+    lat: 4.1139, lng: 101.2884,  // coord corrected (OSM Nominatim) — was in plantation/forest
     areaHa: 110,
     notes: 'Small industrial zone serving southern Perak agriculture/logistics.',
   },
